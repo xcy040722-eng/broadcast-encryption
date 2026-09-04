@@ -149,8 +149,10 @@ def test_header_tamper(tmp_path):
 
     _tamper_package(enc, tamper)
 
+    out = tmp_path / "out.txt"
     with pytest.raises(DecryptionError):
-        decrypt_file(str(enc), str(tmp_path / "out.txt"), keygen(tree, node_keys, 1))
+        decrypt_file(str(enc), str(out), keygen(tree, node_keys, 1))
+    assert not out.exists()
 
 
 def test_body_tamper(tmp_path):
@@ -165,8 +167,10 @@ def test_body_tamper(tmp_path):
 
     _tamper_package(enc, tamper)
 
+    out = tmp_path / "out.txt"
     with pytest.raises(DecryptionError):
-        decrypt_file(str(enc), str(tmp_path / "out.txt"), keygen(tree, node_keys, 1))
+        decrypt_file(str(enc), str(out), keygen(tree, node_keys, 1))
+    assert not out.exists()
 
 
 def test_nonce_tamper(tmp_path):
@@ -181,8 +185,10 @@ def test_nonce_tamper(tmp_path):
 
     _tamper_package(enc, tamper)
 
+    out = tmp_path / "out.txt"
     with pytest.raises(DecryptionError):
-        decrypt_file(str(enc), str(tmp_path / "out.txt"), keygen(tree, node_keys, 1))
+        decrypt_file(str(enc), str(out), keygen(tree, node_keys, 1))
+    assert not out.exists()
 
 
 def test_aad_metadata_tamper(tmp_path):
@@ -197,14 +203,22 @@ def test_aad_metadata_tamper(tmp_path):
 
     _tamper_package(enc, tamper)
 
+    out = tmp_path / "out.txt"
     with pytest.raises(DecryptionError):
-        decrypt_file(str(enc), str(tmp_path / "out.txt"), keygen(tree, node_keys, 1))
+        decrypt_file(str(enc), str(out), keygen(tree, node_keys, 1))
+    assert not out.exists()
 
 
 # ---- Test 12：Session Key 不泄露 ----
 
 
 def test_session_key_not_in_package(tmp_path):
+    """结构层验证：package 不含明文 session key 字段。
+
+    注意：这是结构层面验证，非字节级 K 泄露检测。K 由 encrypt_file 内部
+    secrets 随机生成且不向外暴露，测试拿不到 K 值，因此只能断言 package
+    结构中不存在 session key 字段，不能做「K 字节不在序列化输出」的断言。
+    """
     tree, node_keys = setup(8)
     src = tmp_path / "m.txt"
     src.write_bytes(b"payload")
@@ -239,3 +253,69 @@ def test_hash_roundtrip(payload, tmp_path):
     decrypt_file(str(enc), str(dec), keygen(tree, node_keys, 1))
 
     assert _sha256(dec.read_bytes()) == _sha256(payload)
+
+
+# ---- A/B/C：输出已存在 / overwrite / indices 篡改 ----
+
+
+def test_decrypt_existing_output_file(tmp_path):
+    tree, node_keys = setup(8)
+    src = tmp_path / "m.txt"
+    src.write_bytes(b"payload")
+    enc = tmp_path / "m.enc"
+    encrypt_file(str(src), str(enc), tree, node_keys, set())
+
+    out = tmp_path / "out.txt"
+    out.write_bytes(b"PRE-EXISTING")
+
+    with pytest.raises(FileExistsError):
+        decrypt_file(str(enc), str(out), keygen(tree, node_keys, 1))
+
+    assert out.read_bytes() == b"PRE-EXISTING"  # 原内容未被覆盖
+
+
+def test_encrypt_existing_output_file(tmp_path):
+    tree, node_keys = setup(8)
+    src = tmp_path / "m.txt"
+    src.write_bytes(b"payload")
+    out = tmp_path / "out.enc"
+    out.write_bytes(b"PRE-EXISTING")
+
+    with pytest.raises(FileExistsError):
+        encrypt_file(str(src), str(out), tree, node_keys, set())
+
+    assert out.read_bytes() == b"PRE-EXISTING"
+
+
+def test_overwrite_true(tmp_path):
+    tree, node_keys = setup(8)
+    src = tmp_path / "m.txt"
+    src.write_bytes(b"payload")
+    enc = tmp_path / "m.enc"
+    encrypt_file(str(src), str(enc), tree, node_keys, set())
+
+    out = tmp_path / "out.txt"
+    out.write_bytes(b"OLD-CONTENT")
+
+    decrypt_file(str(enc), str(out), keygen(tree, node_keys, 1), overwrite=True)
+
+    assert out.read_bytes() == b"payload"  # 覆盖后与原始明文一致
+
+
+def test_header_indices_tamper(tmp_path):
+    tree, node_keys = setup(8)
+    src = tmp_path / "m.txt"
+    src.write_bytes(b"payload")
+    enc = tmp_path / "m.enc"
+    encrypt_file(str(src), str(enc), tree, node_keys, {3})  # cover = [3,4,11]
+
+    def tamper(d):
+        # 保持长度不变，把最后一个合法索引 11 改成 10
+        d["cs_header"]["indices"][-1] = 10
+
+    _tamper_package(enc, tamper)
+
+    out = tmp_path / "out.txt"
+    with pytest.raises(DecryptionError):
+        decrypt_file(str(enc), str(out), keygen(tree, node_keys, 1))
+    assert not out.exists()
