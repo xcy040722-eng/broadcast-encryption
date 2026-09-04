@@ -285,3 +285,57 @@ def test_invalid_header_formats():
 def test_subset_key_full_tree():
     tree, labels = setup(8)
     assert subset_key(labels, tree, 1, None) == G_M(labels[1])
+
+
+# ---- G 方向独立测试（Figure 3，不依赖 Encrypt/Decrypt 自洽性）----
+
+
+def test_g_direction_left_child():
+    """直接验证 Figure 3：左孩子方向使用 G_L。"""
+    from src.sd import derive_label
+
+    tree, labels = setup(8)
+    # v2 = v1 左孩子
+    assert derive_label(tree, labels, 1, 2) == G_L(labels[1])
+    # v4 = v2 左孩子 = v1 左左
+    assert derive_label(tree, labels, 1, 4) == G_L(G_L(labels[1]))
+    # v6 = v3 左孩子 = v1 右左
+    assert derive_label(tree, labels, 1, 6) == G_L(G_R(labels[1]))
+
+
+def test_g_direction_right_child():
+    """直接验证 Figure 3：右孩子方向使用 G_R。"""
+    from src.sd import derive_label
+
+    tree, labels = setup(8)
+    # v3 = v1 右孩子
+    assert derive_label(tree, labels, 1, 3) == G_R(labels[1])
+    # v5 = v2 右孩子 = v1 左右
+    assert derive_label(tree, labels, 1, 5) == G_R(G_L(labels[1]))
+    # v7 = v3 右孩子 = v1 右右
+    assert derive_label(tree, labels, 1, 7) == G_R(G_R(labels[1]))
+
+
+def test_g_m_node_key():
+    """直接验证 Figure 3：节点自身 key 使用 G_M。"""
+    tree, labels = setup(8)
+    # 整棵树 key = G_M(LABEL_1)
+    assert subset_key(labels, tree, 1, None) == G_M(labels[1])
+    # S_{1,2} 的 key = G_M(LABEL_{1,2}) = G_M(G_L(LABEL_1))
+    assert subset_key(labels, tree, 1, 2) == G_M(G_L(labels[1]))
+
+
+# ---- KeyGen label 否定断言 ----
+
+
+def test_keygen_u3_no_path_inner_labels():
+    """u3 应获得的 hanging labels 全部存在，路径内侧节点 label 不出现。"""
+    tree, labels = setup(8)
+    mat = keygen(tree, labels, 3)
+    got = set(mat["labels"].keys())
+    # 应存在（具体 (i,j) 集合，非数量）
+    expected = {(1, 3), (1, 4), (1, 11), (2, 4), (2, 11), (5, 11)}
+    assert got == expected
+    # 路径内侧节点（v2/v5/v10 在各自子树的 label）不应出现
+    inner = {(1, 2), (1, 5), (1, 10), (2, 5), (2, 10), (5, 10)}
+    assert got.isdisjoint(inner)
