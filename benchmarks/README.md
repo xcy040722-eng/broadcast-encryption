@@ -89,3 +89,9 @@ python -m benchmarks.benchmark
 **可审计性**：raw.csv 新增 `measurement` 列，记录每个 trial 实际使用的 measurement 次数；分档规则固定在 `config.TIMING_PROFILE`。
 
 **不变量**：N 列表（8..1024）、ρ（0/1/N/0.01/0.05/0.10/0.25/0.50）、四类 R（random/contiguous/uniform/clustered）、全部 metrics、公平性设计（同一 R、交错执行、perf_counter_ns）均保持不变。
+
+## 统计量使用约定
+
+- **median 是跨条件性能比较的主要统计量**：计时数据通常偏态、易受 outlier 影响，跨 (algorithm, N, r, case) 条件比较时应以 median 为主。
+- **mean / std 是辅助统计量**：mean 用于报告总体水平，std 用于报告同一条件下的离散程度，但仅作参考。
+- **注意**：v1.2 对不同 N 使用**不同的 measurement 次数**（N≤128 为 100，N=1024 为 3），因此**不能仅根据不同 N 的 std 绝对值比较测量稳定性**——measurement 次数少的 N 其 std 估计本身就更不确定。跨 N 比较稳定性时，应结合各自实际的 measurement 次数（见 raw.csv 的 `measurement` 列）解读。
