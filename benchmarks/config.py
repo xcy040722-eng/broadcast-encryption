@@ -21,12 +21,32 @@ BASE_SEED = 20260904
 RANDOM_TRIALS = 20
 STRUCTURED_TRIALS = 10
 
-# timing 参数
-WARMUP = 10
-MEASUREMENT = 100
+# v1.2：measurement budget 分档（基于 pilot 实测 SD KeyGen 成本）。
+# 原则：单次操作成本随 N 增长（SD KeyGen 尤其昂贵，N=1024 时 ~0.88s/次），
+#       因此 measurement 次数随 N 反比降低，使每个 N 的测量阶段总耗时可控。
+# 每档为 (warmup, measurement)；raw.csv 记录实际 measurement。
+# 小 N（≤128）保持 measurement=100 的高精度；大 N 降低重复次数。
+TIMING_PROFILE = {
+    8: (5, 100),
+    16: (5, 100),
+    32: (5, 100),
+    64: (5, 100),
+    128: (5, 100),
+    256: (5, 30),
+    512: (3, 10),
+    1024: (2, 3),
+}
 
 # 会话密钥长度（字节）
 SESSION_KEY_LEN = 32
+
+
+def timing_for(n: int) -> tuple[int, int]:
+    """返回 N 对应的 (warmup, measurement)。未列出的 N 回退到最近 2 的幂档位。"""
+    if n in TIMING_PROFILE:
+        return TIMING_PROFILE[n]
+    nearest = 1 << (n.bit_length() - 1)
+    return TIMING_PROFILE.get(nearest, (5, 100))
 
 
 def compute_r(n: int, ratio) -> int:

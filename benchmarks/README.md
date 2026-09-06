@@ -49,7 +49,7 @@ python -m benchmarks.benchmark
 - CS/SD 使用**同一个 R**（不各自随机生成）
 - 相同 K 长度（32 字节）、相同 AES-GCM、相同 seed、相同 trial 数
 - 交错执行（偶数 trial CS→SD，奇数 SD→CS），避免顺序偏差
-- 计时用 `time.perf_counter_ns()`，warm-up 10 + measurement 100
+- 计时用 `time.perf_counter_ns()`；measurement 次数按 N 分档（见「v1.2 measurement budget」）
 
 ## 输出
 
@@ -72,3 +72,20 @@ python -m benchmarks.benchmark
 ## 限制
 
 本 harness 只比较 CS/SD 的广播加密机制本身（Cover / Header / Key material / 核心运行时间），**不测** AES-GCM 本身、JSON 序列化性能、文件加密、磁盘 I/O、并发。
+
+## v1.2 修订（measurement budget）
+
+**背景**：v1.1 对所有操作统一 `warmup=10 + measurement=100`。pilot 运行实测发现 SD KeyGen 在 N=1024 时单次约 0.88s（纯 Python 的 SHA-256 派生 + 循环/`is_ancestor` 开销），叠加 measurement=100 使完整矩阵需约 13 小时，不可接受。
+
+**方法学变化**：改为**按 N 分档的 measurement budget**——昂贵阶段（大 N 的 SD KeyGen）减少重复次数，使每个 N 的测量总耗时可控：
+
+| N | (warmup, measurement) |
+|---|---|
+| 8–128 | (5, 100) |
+| 256 | (5, 30) |
+| 512 | (3, 10) |
+| 1024 | (2, 3) |
+
+**可审计性**：raw.csv 新增 `measurement` 列，记录每个 trial 实际使用的 measurement 次数；分档规则固定在 `config.TIMING_PROFILE`。
+
+**不变量**：N 列表（8..1024）、ρ（0/1/N/0.01/0.05/0.10/0.25/0.50）、四类 R（random/contiguous/uniform/clustered）、全部 metrics、公平性设计（同一 R、交错执行、perf_counter_ns）均保持不变。

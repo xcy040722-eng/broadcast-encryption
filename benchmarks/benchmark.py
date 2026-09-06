@@ -20,7 +20,7 @@ import cryptography
 from . import config, generators, plots, runners, statistics
 
 RAW_COLUMNS = [
-    "algorithm", "N", "r", "ratio", "case", "trial", "seed", "correct",
+    "algorithm", "N", "r", "ratio", "case", "trial", "seed", "measurement", "correct",
     "cover_count", "header_bytes", "key_material_mean", "key_material_max",
     "setup_ns", "keygen_ns", "cover_ns", "header_encrypt_ns",
     "authorized_recover_ns", "revoked_reject_ns",
@@ -93,19 +93,24 @@ def _write_summary_csv(summary: list[dict], output_dir: str) -> str:
 def run_benchmark(
     output_dir: str = "benchmarks/results",
     n_list: list[int] | None = None,
-    warmup: int | None = None,
-    measurement: int | None = None,
+    warmup_override: int | None = None,
+    measurement_override: int | None = None,
 ) -> dict:
     """执行完整 benchmark，返回 {"env", "rows", "summary", "figures"}。"""
     n_list = n_list or config.N_LIST
-    warmup = warmup if warmup is not None else config.WARMUP
-    measurement = measurement if measurement is not None else config.MEASUREMENT
 
     env = record_environment()
     rows: list[dict] = []
     order = ["CS", "SD"]  # 交错执行：偶数 trial CS→SD，奇数 SD→CS
 
     for N in n_list:
+        # v1.2：每 N 用分档 (warmup, measurement)；override 可强制覆盖
+        warmup, measurement = config.timing_for(N)
+        if warmup_override is not None:
+            warmup = warmup_override
+        if measurement_override is not None:
+            measurement = measurement_override
+
         for ratio_label, ratio in config.REVOCATION_RATIOS:
             r = config.compute_r(N, ratio)
 
@@ -119,7 +124,8 @@ def run_benchmark(
                     result = runners.run_trial(algo, N, R, K, warmup, measurement)
                     rows.append({
                         "algorithm": algo, "N": N, "r": r, "ratio": ratio_label,
-                        "case": "random", "trial": trial, "seed": seed, **result,
+                        "case": "random", "trial": trial, "seed": seed,
+                        "measurement": measurement, **result,
                     })
 
             # Case B/C/D：结构化撤销（10 trials，R 确定性，重复测量 timing）
@@ -139,7 +145,8 @@ def run_benchmark(
                         rows.append({
                             "algorithm": algo, "N": N, "r": r, "ratio": ratio_label,
                             "case": case_name, "trial": trial,
-                            "seed": config.BASE_SEED, **result,
+                            "seed": config.BASE_SEED,
+                            "measurement": measurement, **result,
                         })
 
     raw_path = _write_raw_csv(rows, output_dir)
