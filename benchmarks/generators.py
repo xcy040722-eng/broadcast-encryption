@@ -17,9 +17,18 @@ def contiguous_revoked(n: int, r: int) -> set[int]:
 
 
 def uniform_revoked(n: int, r: int) -> set[int]:
-    """Case C：均匀分布撤销。步长 n//r，尽可能分散。"""
-    step = max(1, n // r)
-    return {1 + i * step for i in range(r)}
+    """Case C：均匀分布撤销。在 [1, n] 上取 r 个等间距点。
+
+    数学定义：
+        r == 1: R = {1}
+        r >= 2: R = { round(1 + i * (n - 1) / (r - 1)) for i in range(r) }
+
+    即首点 1、末点 n，中间 r-2 个点等间距插值后四舍五入。
+    由于 r < n（调用方保证），步长 (n-1)/(r-1) >= 1，故 |R| == r、无碰撞。
+    """
+    if r == 1:
+        return {1}
+    return {round(1 + i * (n - 1) / (r - 1)) for i in range(r)}
 
 
 def clustered_revoked(n: int, r: int) -> set[int]:
