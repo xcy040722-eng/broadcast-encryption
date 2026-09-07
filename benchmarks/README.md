@@ -57,6 +57,13 @@ python -m benchmarks.benchmark
 - `summary.csv`：按 (algorithm, N, r, ratio, case) 聚合（mean/median/std）
 - `figures/`：6 张图（Cover vs N、Cover vs r、Header entries、Header bytes、Cover time、Key material）
 
+### 指标口径
+
+- `cover_count`：cover 的 entry 数量（CS = 完整子树数，SD = 子树差 S_ij 数），**无量纲整数**。
+- `header_bytes`：序列化后 header 的**字节数**（JSON+base64，含字段名等工程编码开销）。
+- `key_material_mean` / `key_material_max`：**用户持有的 key/label 数量**（整数，非字节数）——CS 为路径节点密钥数，SD 为挂起 label 数 + 1（全树 key）。
+- `setup_ns` / `keygen_ns` / `cover_ns` / `header_encrypt_ns` / `authorized_recover_ns` / `revoked_reject_ns`：各阶段**中位数（median）纳秒**（raw.csv）或聚合后的 median/mean/std（summary.csv）。
+
 ## 结构化 case 定义
 
 - **contiguous**：`R = {1, 2, ..., r}`（最左端连续块）。
