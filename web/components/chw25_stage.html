@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><style>
+* { box-sizing: border-box; }
+body { margin:0; font-family:-apple-system,"Segoe UI",Roboto,sans-serif;
+       background:#0f1420; color:#e6edf3; font-size:13px; }
+.wrap { display:flex; gap:10px; height:__H__px; }
+.stage { flex:1; background:#141b2b; border-radius:10px; padding:10px; position:relative;
+         border:1px solid #223052; overflow:hidden; min-width:0; }
+.stage h3 { margin:0 0 6px; font-size:14px; color:#7fb3ff; }
+svg#svg { width:100%; height:calc(100% - 74px); }
+.stage-in { animation: stagein .45s cubic-bezier(.2,.7,.3,1); }
+@keyframes stagein { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:none; } }
+.panel { width:360px; background:#141b2b; border-radius:10px; padding:10px;
+         border:1px solid #223052; overflow-y:auto; flex-shrink:0; }
+.panel h4 { margin:2px 0 6px; font-size:12px; color:#7fb3ff; letter-spacing:.5px; }
+.kv { display:flex; justify-content:space-between; gap:8px; padding:2px 0; border-bottom:1px dashed #1e2a44; }
+.kv span:first-child { color:#8b9bb4; }
+.mono { font-family:ui-monospace,Consolas,monospace; }
+.ok { color:#3fb950; } .bad { color:#f85149; } .warn { color:#d29922; }
+.hidden { color:#d29922; letter-spacing:1px; }
+.controls { position:absolute; bottom:8px; left:10px; right:10px; display:flex; gap:6px;
+            align-items:center; background:#0f1420cc; padding:6px 8px; border-radius:8px; }
+button { background:#223052; color:#e6edf3; border:1px solid #33507f; border-radius:6px;
+         padding:5px 10px; cursor:pointer; font-size:12px; }
+button:hover { background:#2c4270; } button:disabled { opacity:.4; cursor:default; }
+.stagebar { display:flex; gap:4px; margin-bottom:6px; flex-wrap:wrap; }
+.pill { padding:2px 8px; border-radius:10px; background:#1b2540; color:#8b9bb4;
+        border:1px solid #223052; font-size:11px; }
+.pill.active { background:#1f6feb; color:#fff; border-color:#1f6feb; }
+.mono-s { font-family:ui-monospace,Consolas,monospace; font-size:11.5px; }
+/* cancellation 动画 */
+.term { transition: opacity .55s ease, transform .55s ease; }
+.term.struck { opacity:.18; transform:translateX(6px); text-decoration:line-through; }
+.conn { stroke-dasharray:6 5; animation: dash 1s linear infinite; }
+@keyframes dash { to { stroke-dashoffset:-22; } }
+.conn.erased { opacity:0; transition:opacity .5s ease; }
+.resultpop { animation: pop .6s cubic-bezier(.2,1.3,.4,1); }
+@keyframes pop { from { opacity:0; transform:scale(.94); } to { opacity:1; transform:none; } }
+/* responsive：1920 / 1440 / 1366 */
+@media (max-width:1500px){ .panel{width:320px;font-size:12.5px} }
+@media (max-width:1300px){ .panel{width:288px;font-size:12px} .stage h3{font-size:13px} }
+</style></head><body>
+<div class="wrap">
+  <div class="stage">
+    <h3 id="stageTitle">—</h3>
+    <div class="stagebar" id="stagebar"></div>
+    <svg id="svg" viewBox="0 0 780 430" preserveAspectRatio="xMidYMid meet"></svg>
+    <div class="controls">
+      <button id="bPrev">◀ Prev</button>
+      <button id="bPlay">▶ Play</button>
+      <button id="bPause">⏸ Pause</button>
+      <button id="bNext">Next ▶</button>
+      <button id="bReplay">↺ Replay</button>
+      <span id="stepInfo" class="mono" style="margin-left:auto;color:#8b9bb4"></span>
+    </div>
+  </div>
+  <div class="panel" id="panel"></div>
+</div>
+<script>
+const P = __PAYLOAD__;
+const STAGES = P.stages;
+let cur = 0, decPhase = 0, timer = null;
+
+const svg = document.getElementById('svg');
+const panel = document.getElementById('panel');
+const title = document.getElementById('stageTitle');
+const bar = document.getElementById('stagebar');
+const info = document.getElementById('stepInfo');
+
+const fmt = n => (typeof n === 'number') ? n.toLocaleString() : n;
+const esc = s => String(s).replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+
+/* keyset_id 的阶段门控（与 Python visible_keyset_id 语义一致） */
+function visibleKeyset(stage){
+  const a = STAGES.indexOf(stage), b = STAGES.indexOf(P.keyset.reveal_stage);
+  return a >= b ? P.keyset.value : null;
+}
+/* 用户卡片网格：N<=4 单行；N=5..8 两行（responsive） */
+function userGrid(N){ return N <= 4 ? {cols:N, rows:1} : {cols:Math.ceil(N/2), rows:2}; }
+
+function buildStageBar(){
+  bar.innerHTML = STAGES.map((s,i)=>
+    `<span class="pill ${i===cur?'active':''}">${i+1}. ${s}</span>`).join('');
+}
+function reanimate(){ svg.classList.remove('stage-in'); void svg.offsetWidth; svg.classList.add('stage-in'); }
+
+function render(){
+  buildStageBar();
+  const s = STAGES[cur];
+  title.textContent = `${cur+1}. ${s}`;
+  info.textContent = `${cur+1}/${STAGES.length}` + (s==='decrypt' ? `  · sub ${decPhase+1}/5` : '');
+  ({setup:stageSetup, keygen:stageKeygen, select_s:stageSelectS, encrypt:stageEncrypt,
+    broadcast:stageBroadcast, decrypt:stageDecrypt, recover:stageRecover, media:stageMedia}[s])();
+  reanimate();
+  document.getElementById('bPrev').disabled = cur===0;
+  document.getElementById('bNext').disabled = cur===STAGES.length-1;
+}
+
+/* ---------- ① Setup：只显示 params_id；keyset_id 为 Pending ---------- */
+function stageSetup(){
+  const ksid = visibleKeyset('setup');   // === null
+  svg.innerHTML = `
+   <g font-size="13">
+     <text x="20" y="28" fill="#7fb3ff" font-size="15">Public Parameters</text>
+     <text x="20" y="58" class="mono">n=${P.params.n}  m=${P.params.m}  q=${P.params.q}  N=${P.params.N}</text>
+     <text x="20" y="84" class="mono">A.shape=[${P.public_values.A_shape}]  head=${esc(JSON.stringify(P.public_values.A_head))}</text>
+     <text x="20" y="110" class="mono">p.shape=[${P.public_values.p_shape}]  head=${esc(JSON.stringify(P.public_values.p_head))}</text>
+     <text x="20" y="136" class="mono">R.shape=[${P.public_values.R_shape}]  (r_i = e_i)</text>
+     <rect x="20" y="160" width="740" height="52" rx="8" fill="#1b2540" stroke="#223052"/>
+     <text x="34" y="184" class="mono" fill="#e6edf3">params_id = ${esc(P.params_id)}</text>
+     <text x="34" y="204" class="mono" fill="#d29922">keyset_id = ${esc(P.keyset.pending_text)}</text>
+     <rect x="20" y="228" width="740" height="78" rx="8" fill="#1a2338" stroke="#223052"/>
+     <text x="34" y="252" fill="#8b9bb4" font-size="12">keyset_id 依赖「用户公钥目录」，KeyGen 完成后才存在。</text>
+     <text x="34" y="272" fill="#8b9bb4" font-size="12">→ 本阶段只显示 params_id；keyset_id 见下一阶段。</text>
+     <text x="34" y="292" fill="#8b9bb4" font-size="12">keyset_id = SHA-256( canonical pp + 公钥目录 )</text>
+   </g>`;
+  panel.innerHTML = `
+    <h4>Setup</h4>
+    <div class="kv"><span>n / m / q / N</span><span class="mono">${P.params.n}/${P.params.m}/${P.params.q}/${P.params.N}</span></div>
+    <div class="kv"><span>params_id</span><span class="mono">${esc(P.params_id)}</span></div>
+    <div class="kv"><span>keyset_id</span><span class="warn">${esc(P.keyset.pending_text)}</span></div>
+    <div style="color:#8b9bb4;margin-top:8px;line-height:1.6">
+      keyset_id 依赖公钥目录，Setup 阶段<b>尚未生成</b>。
+    </div>`;
+}
+
+/* ---------- ② KeyGen：keyset_id 在此出现 ---------- */
+function stageKeygen(){
+  const ksid = visibleKeyset('keygen');
+  const N = P.users.length, G = userGrid(N);
+  const cw = 176, ch = 196, gap = 10;
+  const startX = (780 - (G.cols*cw + (G.cols-1)*gap)) / 2;
+  let g = `<text x="20" y="24" fill="#7fb3ff" font-size="15">KeyGen — pk_i=(W_i,{y_ij}_(j≠i)), sk_i=y_ii</text>`;
+  P.users.forEach((u, idx)=>{
+    const r = Math.floor(idx/G.cols), c = idx%G.cols;
+    const x = startX + c*(cw+gap), y = 42 + r*(ch+8);
+    const cross = Object.entries(u.cross_terms).map(([j,fp],k)=>
+      `<text x="10" y="${132+k*13}" class="mono-s">y_${u.id},${j}: ${fp}</text>`).join('');
+    g += `<g transform="translate(${x},${y})">
+      <rect width="${cw}" height="${ch}" rx="10" fill="#1b2540"
+            stroke="${u.is_recipient?'#2ea043':'#223052'}" stroke-width="1.5"/>
+      <text x="10" y="22" font-size="14">u${u.id}</text>
+      <text x="10" y="42" class="mono-s" fill="#8b9bb4">W_i [${u.W_shape}] fp ${u.W_fingerprint}</text>
+      <text x="10" y="62" class="mono-s" fill="#8b9bb4">cross y_ij (public):</text>
+      ${cross}
+      <text x="10" y="176" class="mono-s hidden">y_${u.id},${u.id}: PRIVATE</text>
+      <text x="10" y="190" class="mono-s" fill="${u.eq66_ok&&u.eq67_ok?'#3fb950':'#f85149'}">Eq6.6 ${u.eq66_ok?'✓':'✗'} · Eq6.7 ${u.eq67_ok?'✓':'✗'}</text>
+    </g>`;
+  });
+  if (G.rows===1) g += `<text x="20" y="262" class="mono" fill="#7fb3ff">keyset_id = ${esc(String(ksid)).slice(0,40)}…</text>`;
+  svg.innerHTML = g;
+  panel.innerHTML = `
+    <h4>KeyGen</h4>
+    <div class="kv"><span>keyset_id</span><span class="mono ok">${esc(String(ksid).slice(0,16))}…</span></div>
+    <div style="color:#8b9bb4;margin-top:8px;line-height:1.6">
+      <span class="mono">y_ii = PRIVATE</span>（不展示完整向量）<br>
+      <span class="mono">pk_i = (W_i, {y_ij}_(j≠i))</span> — 交叉项是<b>公钥的一部分</b>（可显示）<br><br>
+      <b>验证：</b><br><span class="mono">Eq.(6.6) A·y_ii = W_i·r_i + p</span><br>
+      <span class="mono">Eq.(6.7) A·y_ij = W_i·r_j</span><br>
+      四用户 Eq6.6 / Eq6.7 均 ✓。<br><br>
+      <span class="ok">keyset_id 在本阶段生成</span>（依赖公钥目录）。
+    </div>`;
+}
+
+/* ---------- ③ Select S ---------- */
+function stageSelectS(){
+  const N = P.users.length, G = userGrid(N);
+  const cw = 176, ch = 116, gap = 10;
+  const startX = (780 - (G.cols*cw + (G.cols-1)*gap)) / 2;
+  let g = `<text x="20" y="24" fill="#7fb3ff" font-size="15">Select S — 一份共同广播密文</text>`;
+  P.users.forEach((u, idx)=>{
+    const r = Math.floor(idx/G.cols), c = idx%G.cols;
+    const x = startX + c*(cw+gap), y = 44 + r*(ch+8), rec = u.is_recipient;
+    g += `<g transform="translate(${x},${y})">
+      <rect width="${cw}" height="${ch}" rx="10"
+            fill="${rec?'#12331f':'#2a1518'}" stroke="${rec?'#2ea043':'#f85149'}" stroke-width="2"/>
+      <text x="10" y="26" font-size="15">u${u.id}</text>
+      <text x="10" y="52" font-size="12" fill="${rec?'#3fb950':'#f85149'}">${rec?'Authorized':'Non-recipient'}</text>
+      <text x="10" y="76" class="mono-s" fill="#8b9bb4">${rec?'u'+u.id+' ∈ S':'u'+u.id+' ∉ S'}</text>
+      <text x="10" y="98" class="mono-s" fill="#8b9bb4">${rec?'可恢复会话密钥':'无法恢复'}</text>
+    </g>`;
+  });
+  g += `<text x="20" y="290" font-size="12" fill="#d29922">S = {${P.recipient_ids.join(', ')}} → **同一份** ciphertext（非逐用户生成）</text>`;
+  svg.innerHTML = g;
+  panel.innerHTML = `
+    <h4>Recipient Set</h4>
+    <div class="kv"><span>S</span><span class="mono">{${P.recipient_ids.join(', ')}}</span></div>
+    ${P.users.map(u=>`<div class="kv"><span>u${u.id}</span><span class="${u.is_recipient?'ok':'bad'}">${u.is_recipient?'Authorized':'Non-recipient'}</span></div>`).join('')}
+    <h4 style="margin-top:10px">关键</h4>
+    <div style="color:#8b9bb4;line-height:1.6">
+      所有用户收到<span class="ok">同一份</span>密文；能否解密取决于「位置是否被承诺」。
+    </div>`;
+}
+
+/* ---------- ④ Encrypt ---------- */
+function stageEncrypt(){
+  const c = P.ciphertext;
+  svg.innerHTML = `
+   <text x="20" y="26" fill="#7fb3ff" font-size="15">Encrypt — ct = (ξ, c1ᵀ, c2ᵀ, c3)</text>
+   <g class="mono" font-size="12">
+     <text x="20" y="60">ξ (hex) = ${esc(c.xi_hex)}</text>
+     <text x="20" y="86">c1 = ${esc(JSON.stringify(c.c1))}</text>
+     <text x="20" y="112">c2 = ${esc(JSON.stringify(c.c2))}</text>
+     <text x="20" y="138">c3 = ${fmt(c.c3)}</text>
+   </g>
+   <text x="20" y="188" fill="#7fb3ff" font-size="14">W_S = Σ_(j∈S) W_j</text>
+   <text x="20" y="216" class="mono">W_S = ${c.W_S_parts.map(j=>'W_'+j).join(' + ')}   (fp: ${c.W_S_fingerprint})</text>
+   <line x1="20" y1="238" x2="760" y2="238" stroke="#223052"/>
+   <text x="20" y="268" fill="#8b9bb4" font-size="12">加密者无需任何用户私钥；只用公钥 W_j 与公开参数。</text>`;
+  panel.innerHTML = `
+    <h4>Ciphertext</h4>
+    <div class="kv"><span>ξ</span><span class="mono">${esc(c.xi_hex.slice(0,16))}…</span></div>
+    <div class="kv"><span>c1 (dim m)</span><span class="mono">[${c.c1.length}]</span></div>
+    <div class="kv"><span>c2 (dim m)</span><span class="mono">[${c.c2.length}]</span></div>
+    <div class="kv"><span>c3</span><span class="mono">${fmt(c.c3)}</span></div>
+    <div class="kv"><span>W_S parts</span><span class="mono">${c.W_S_parts.map(j=>'W_'+j).join(' + ')}</span></div>
+    <h4 style="margin-top:10px">公式</h4>
+    <div class="mono-s" style="color:#8b9bb4;line-height:1.8">
+      c1ᵀ = sᵀA + eᵀ<br>c2ᵀ = sᵀ(W_0+W_S) + eᵀK_W<br>c3  = sᵀp + eᵀk_p + μ⌊q/2⌋
+    </div>`;
+}
+
+/* ---------- ⑤ Broadcast ---------- */
+function stageBroadcast(){
+  const cx = 390, cy = 70;
+  const N = P.users.length, G = userGrid(N);
+  const cw = 150, ch = 62, gap = 12;
+  const startX = (780 - (G.cols*cw + (G.cols-1)*gap)) / 2;
+  let g = `<text x="20" y="24" fill="#7fb3ff" font-size="15">Broadcast — 同一密文分发给所有用户</text>`;
+  g += `<rect x="${cx-115}" y="${cy}" width="230" height="66" rx="10" fill="#1f6feb" opacity="0.92"/>
+        <text x="${cx-98}" y="${cy+28}" font-size="13" fill="#fff">ct = (ξ, c1ᵀ, c2ᵀ, c3)</text>
+        <text x="${cx-98}" y="${cy+50}" class="mono-s" fill="#cfe3ff">一份密文</text>`;
+  const by = 250;
+  P.users.forEach((u, idx)=>{
+    const r = Math.floor(idx/G.cols), c = idx%G.cols;
+    const x = startX + c*(cw+gap), y = by + r*(ch+10);
+    const col = u.is_recipient ? '#2ea043' : '#f85149';
+    g += `<line x1="${cx}" y1="${cy+66}" x2="${x+cw/2}" y2="${y}" stroke="${col}"
+             stroke-width="2" stroke-dasharray="5,4" opacity="0.85"/>`;
+    g += `<rect x="${x}" y="${y}" width="${cw}" height="${ch}" rx="10"
+             fill="${u.is_recipient?'#12331f':'#2a1518'}" stroke="${col}" stroke-width="2"/>
+          <text x="${x+12}" y="${y+26}" font-size="14">u${u.id}</text>
+          <text x="${x+12}" y="${y+48}" font-size="11" fill="${col}">${u.is_recipient?'Authorized':'Non-recipient'}</text>`;
+  });
+  g += `<text x="20" y="410" font-size="11" fill="#d29922">visual copy only — underlying ciphertext is identical</text>`;
+  svg.innerHTML = g;
+  panel.innerHTML = `
+    <h4>Broadcast</h4>
+    <div style="color:#8b9bb4;line-height:1.6">
+      视觉上从发送者复制到用户，但<span class="warn">底层 ciphertext 完全相同</span>。<br><br>
+      <span class="mono">S = {${P.recipient_ids.join(', ')}}</span>
+    </div>`;
+}
+
+/* ---------- ⑥ Decrypt：真实 cancellation SVG 动画 ---------- */
+function stageDecrypt(){
+  const uid = P.recipient_ids[0];
+  const t = P.traces[String(uid)];
+  const nonrec = P.users.filter(u => !u.is_recipient);
+  const subs = ['A. Build Y_sum','B. Left L=c3+c2ᵀr','C. Right R=c1ᵀY','D. Expand','E. Cancel'];
+  const ph = decPhase;
+
+  let g = `<text x="20" y="22" fill="#7fb3ff" font-size="15">Authorized Decryption — u${uid}（真实 trace）</text>`;
+  subs.forEach((s,i)=>{
+    g += `<rect x="${20+i*146}" y="34" width="140" height="24" rx="6"
+            fill="${i<=ph?'#1f6feb':'#1b2540'}" stroke="#223052"/>
+          <text x="${30+i*146}" y="51" font-size="11" fill="${i<=ph?'#fff':'#8b9bb4'}">${s}</text>`;
+  });
+
+  // 面板 L / R
+  const LX=24, RX=400, PY=86, PW=356, PH=196;
+  const common = ph >= 3;   // 划消阶段
+  g += `<rect x="${LX}" y="${PY}" width="${PW}" height="${PH}" rx="10" fill="#1b2540" stroke="#223052"/>`;
+  g += `<rect x="${RX}" y="${PY}" width="${PW}" height="${PH}" rx="10" fill="#1b2540" stroke="#223052"/>`;
+  g += `<text x="${LX+12}" y="${PY+22}" font-size="13" fill="#7fb3ff">L = c3 + c2ᵀr_${uid}</text>`;
+  g += `<text x="${RX+12}" y="${PY+22}" font-size="13" fill="#7fb3ff">R = c1ᵀ(y_${uid},${uid}+y_0,${uid}+Σy_j,${uid})</text>`;
+
+  const Lrows = [
+    ['μ⌊q/2⌋', 'μ⌊q/2⌋', false],
+    ['sᵀp', 'sᵀp', true],
+    ['sᵀ(W_0+W_S)r', 'sᵀ(W_0+W_S)r_'+uid, true],
+    ['ẽ₂', 'ẽ₂', false],
+  ];
+  const Rrows = [
+    ['sᵀp', 'sᵀp', true],
+    ['sᵀ(W_0+W_S)r', 'sᵀ(W_0+W_S)r_'+uid, true],
+    ['ẽ₁', 'ẽ₁', false],
+  ];
+  Lrows.forEach((row,i)=>{
+    const y = PY+52+i*34, struck = common && row[2];
+    g += `<text x="${LX+16}" y="${y}" class="mono term ${struck?'struck':''}"
+            fill="${row[2]?'#f0883e':'#e6edf3'}">+ ${esc(row[1])}</text>`;
+    if (row[2]) g += `<circle id="l${i}" cx="${LX+PW-24}" cy="${y-4}" r="4" fill="#f0883e"/>`;
+  });
+  Rrows.forEach((row,i)=>{
+    const y = PY+52+i*34, struck = common && row[2];
+    g += `<text x="${RX+16}" y="${y}" class="mono term ${struck?'struck':''}"
+            fill="${row[2]?'#f0883e':'#e6edf3'}">+ ${esc(row[1])}</text>`;
+    if (row[2]) g += `<circle id="r${i}" cx="${RX+16}" cy="${y-4}" r="4" fill="#f0883e"/>`;
+  });
+  // 连线（ph>=2 出现；ph>=3 划消）
+  if (ph >= 2){
+    const pairs = [[1,0],[2,1]];  // L 行号 -> R 行号
+    pairs.forEach(([li,ri])=>{
+      const y1 = PY+52+li*34-4, y2 = PY+52+ri*34-4;
+      g += `<path d="M ${LX+PW-24} ${y1} C ${LX+PW+8} ${y1}, ${RX-8} ${y2}, ${RX+16} ${y2}"
+             fill="none" stroke="#f0883e" stroke-width="1.6"
+             class="conn ${common?'erased':''}"/>`;
+    });
+  }
+  // 真实数值
+  g += `<text x="${LX+16}" y="${PY+PH-14}" class="mono-s" fill="#8b9bb4">
+          c3=${fmt(t.c3)}  c2ᵀr=${fmt(t.c2_dot_r_i)}  → L=${fmt(t.c3_plus_c2_term)}</text>`;
+  g += `<text x="${RX+16}" y="${PY+PH-14}" class="mono-s" fill="#8b9bb4">
+          c1ᵀΣy = ${fmt(t.c1_term_total)}</text>`;
+
+  // 结果区（ph>=3 出现）
+  const RY = 300;
+  if (ph >= 3){
+    g += `<g class="resultpop" transform="translate(24,${RY})">
+      <rect width="732" height="52" rx="10" fill="#12331f" stroke="#2ea043"/>
+      <text x="16" y="32" class="mono" fill="#3fb950" font-size="14">
+        z = μ⌊q/2⌋ − ẽ₁ + ẽ₂   →   z_centered = ${fmt(t.z_centered)}   (noise = ${fmt(t.noise_residual)})</text>
+    </g>`;
+  } else {
+    g += `<text x="24" y="${RY+30}" fill="#8b9bb4" font-size="12">
+            （推进到 D/E 阶段以展开代数并划消公共项 sᵀp 与 sᵀ(W_0+W_S)r_${uid}）</text>`;
+  }
+  // 阈值尺（ph>=4 或已解码）
+  if (ph >= 4){
+    g += `<g transform="translate(24,${RY+62})">${rulerMarkup(t, 732)}</g>`;
+  }
+  svg.innerHTML = g;
+
+  panel.innerHTML = `
+    <h4>Decrypt u${uid} — 真实 trace</h4>
+    <div class="kv"><span>c3</span><span class="mono">${fmt(t.c3)}</span></div>
+    <div class="kv"><span>c2ᵀ r_${uid}</span><span class="mono">${fmt(t.c2_dot_r_i)}</span></div>
+    <div class="kv"><span>c1ᵀ y_${uid},${uid}</span><span class="mono">${fmt(t.c1_dot_y_ii)}</span></div>
+    <div class="kv"><span>c1ᵀ y_0,${uid}</span><span class="mono">${fmt(t.c1_dot_y_0i)}</span></div>
+    ${Object.entries(t.c1_dot_y_ji).map(([j,v])=>`<div class="kv"><span>c1ᵀ y_${j},${uid}</span><span class="mono">${fmt(v)}</span></div>`).join('')}
+    <div class="kv"><span><b>z_centered</b></span><span class="mono"><b>${fmt(t.z_centered)}</b></span></div>
+    <div class="kv"><span>noise_residual</span><span class="mono">${fmt(t.noise_residual)}</span></div>
+    <div class="kv"><span>q/4 threshold</span><span class="mono">${fmt(t.threshold)}</span></div>
+    <div class="kv"><span>noise / threshold</span><span class="mono">${(Math.abs(t.noise_residual)/t.threshold*100).toFixed(4)}%</span></div>
+    <h4 style="margin-top:8px">非接收者（不进入成功路径）</h4>
+    ${nonrec.map(u=>`<div class="kv"><span>u${u.id}</span><span class="bad">NotRecipient （u${u.id} ∉ S）</span></div>`).join('')}
+    <div style="color:#8b9bb4;margin-top:6px;line-height:1.6">
+      非接收者<b>不是</b>「解密为 0」：应用层用
+      <span class="mono">authorized=false, bit=None</span> 区分。
+    </div>`;
+}
+
+function rulerMarkup(t, W){
+  const qq = P.params.q, pad = 14, H = 56;
+  const x = v => pad + (Math.max(-qq/2, Math.min(qq/2, v)) + qq/2) / qq * (W-2*pad);
+  const zc = t.z_centered;
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:56px">
+    <line x1="${pad}" y1="28" x2="${W-pad}" y2="28" stroke="#33507f" stroke-width="2"/>
+    <rect x="${x(-qq/4)}" y="25" width="${x(qq/4)-x(-qq/4)}" height="6" fill="#2ea043" opacity="0.45"/>
+    <line x1="${x(-qq/4)}" y1="18" x2="${x(-qq/4)}" y2="38" stroke="#8b9bb4"/>
+    <line x1="${x(qq/4)}" y1="18" x2="${x(qq/4)}" y2="38" stroke="#8b9bb4"/>
+    <line x1="${x(0)}" y1="12" x2="${x(0)}" y2="44" stroke="#7fb3ff"/>
+    <circle cx="${x(zc)}" cy="28" r="6" fill="#f0883e"/>
+    <text x="${pad}" y="52" font-size="9" fill="#8b9bb4">-q/2</text>
+    <text x="${x(-qq/4)-12}" y="52" font-size="9" fill="#8b9bb4">-q/4</text>
+    <text x="${x(0)-4}" y="52" font-size="9" fill="#7fb3ff">0</text>
+    <text x="${x(qq/4)-8}" y="52" font-size="9" fill="#8b9bb4">q/4</text>
+    <text x="${W-pad-26}" y="52" font-size="9" fill="#8b9bb4">q/2</text>
+    <text x="${W/2-90}" y="12" font-size="10" fill="#f0883e">z_centered=${fmt(zc)} → μ=${t.decoded_mu}</text>
+  </svg>`;
+}
+
+/* ---------- ⑦ Recover ---------- */
+function stageRecover(){
+  const h = P.hybrid_progress;
+  let g = `<text x="20" y="24" fill="#7fb3ff" font-size="15">Recover Session Key</text>`;
+  if (!h){
+    g += `<text x="20" y="80" fill="#8b9bb4" font-size="13">（在左侧点击「运行 Hybrid Demo」后显示）</text>`;
+    svg.innerHTML = g;
+    panel.innerHTML = `<h4>Recover</h4><div style="color:#8b9bb4">尚未运行 hybrid demo。</div>`;
+    return;
+  }
+  const n = 16, cell = 20, ox = 24, oy = 52;
+  const shown = Math.min(h.bit_count, (decPhase+1)*64);
+  for (let k=0;k<h.bit_count;k++){
+    const r=Math.floor(k/n), c=k%n, rec = k < shown;
+    g += `<rect x="${ox+c*cell}" y="${oy+r*cell}" width="${cell-2}" height="${cell-2}" rx="3"
+            fill="${rec?'#2ea043':'#223052'}"/>`;
+  }
+  g += `<text x="${ox}" y="${oy+16*cell+18}" class="mono-s" fill="#8b9bb4">
+          ${esc(h.grid_note)}</text>`;
+  g += `<g transform="translate(390,60)">
+      <rect width="366" height="164" rx="10" fill="#1b2540" stroke="#223052"/>
+      <text x="14" y="26" fill="#7fb3ff" font-size="13">AES-256 Session Key</text>
+      <text x="14" y="54" class="mono-s">${h.recovered_count}/${h.bit_count} bits recovered</text>
+      <text x="14" y="78" class="mono-s">key fingerprint (sha256[:8]) = ${esc(h.key_fingerprint)}</text>
+      <text x="14" y="102" class="mono-s">key length = ${h.key_length_bytes} bytes</text>
+      <text x="14" y="126" class="mono-s hidden">key bytes = [HIDDEN]（不导出任何字节）</text>
+      <text x="14" y="150" font-size="13" fill="${h.key_recovered?'#3fb950':'#f85149'}">
+        AES-256 Session Key recovered ${h.key_recovered?'✓':'✗'}</text>
+    </g>`;
+  svg.innerHTML = g;
+  panel.innerHTML = `
+    <h4>Recover Session Key</h4>
+    <div class="kv"><span>bits</span><span class="mono">${h.recovered_count}/${h.bit_count}</span></div>
+    <div class="kv"><span>key length</span><span class="mono">${h.key_length_bytes} B</span></div>
+    <div class="kv"><span>key fingerprint</span><span class="mono">${esc(h.key_fingerprint)}</span></div>
+    <div class="kv"><span>recovered</span><span class="${h.key_recovered?'ok':'bad'}">${h.key_recovered?'✓':'✗'}</span></div>
+    <div style="color:#8b9bb4;margin-top:8px;line-height:1.6">
+      16×16 网格是 <b>aggregate / progress</b> 可视化，
+      <b>不声称</b>拥有真实的逐 bit streaming callback。<br>
+      <span class="hidden">不显示任何 AES key 字节</span>。
+    </div>`;
+}
+
+/* ---------- ⑧ Media ---------- */
+function stageMedia(){
+  const h = P.hybrid_progress;
+  let g = `<text x="20" y="24" fill="#7fb3ff" font-size="15">AES-GCM Media Recovery</text>`;
+  if (!h){ g += `<text x="20" y="80" fill="#8b9bb4" font-size="13">（运行 Hybrid Demo 后显示）</text>`; }
+  else {
+    const m = h.media;
+    g += `<g transform="translate(24,60)">
+      <rect width="732" height="210" rx="10" fill="#1b2540" stroke="#223052"/>
+      <text x="20" y="34" fill="#7fb3ff" font-size="13">文件</text>
+      <text x="20" y="60" class="mono">${esc(m.filename)}  (${fmt(m.size)} bytes)</text>
+      <line x1="20" y1="82" x2="712" y2="82" stroke="#223052"/>
+      <text x="20" y="108" fill="#7fb3ff" font-size="13">SHA-256 比对</text>
+      <text x="20" y="134" class="mono-s">original  = ${esc(m.original_sha256).slice(0,44)}…</text>
+      <text x="20" y="156" class="mono-s">recovered = ${esc(String(m.recovered_sha256)).slice(0,44)}…</text>
+      <text x="20" y="188" font-size="14" fill="${m.match?'#3fb950':'#f85149'}">
+        ${m.match?'Original SHA-256 == Decrypted SHA-256 ✓':'✗ Mismatch'}</text>
+    </g>`;
+  }
+  svg.innerHTML = g;
+  panel.innerHTML = `<h4>Media</h4>` + (h ? `
+    <div class="kv"><span>file</span><span class="mono">${esc(h.media.filename)}</span></div>
+    <div class="kv"><span>size</span><span class="mono">${fmt(h.media.size)} B</span></div>
+    <div class="kv"><span>match</span><span class="${h.media.match?'ok':'bad'}">${h.media.match?'✓':'✗'}</span></div>` :
+    `<div style="color:#8b9bb4">尚未运行 hybrid demo。</div>`);
+}
+
+/* ---------- 控制（含 decrypt 子阶段）---------- */
+function go(n){ cur = Math.max(0, Math.min(STAGES.length-1, n)); render(); }
+function play(){
+  if (timer) return;
+  timer = setInterval(()=>{
+    const s = STAGES[cur];
+    if (s === 'decrypt' && decPhase < 4){ decPhase++; render(); return; }
+    if (cur >= STAGES.length-1){ pause(); return; }
+    cur++; decPhase = 0; render();
+  }, 1400);
+}
+function pause(){ clearInterval(timer); timer = null; }
+document.getElementById('bPrev').onclick = ()=>{ pause(); decPhase=0; go(cur-1); };
+document.getElementById('bNext').onclick = ()=>{
+  pause();
+  if (STAGES[cur]==='decrypt' && decPhase < 4){ decPhase++; render(); }
+  else { decPhase = 0; go(cur+1); }
+};
+document.getElementById('bPlay').onclick = ()=>{ play(); };
+document.getElementById('bPause').onclick = pause;
+document.getElementById('bReplay').onclick = ()=>{
+  pause(); cur = 0; decPhase = 0; render(); play();      // Replay 重置阶段
+};
+
+render();
+</script></body></html>

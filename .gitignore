@@ -2,3 +2,8 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+
+# 生成的媒体产物（非源码，可由脚本重建）
+*.mp4
+desktop_workbench/screenshots/
+visualization/manim/media/
