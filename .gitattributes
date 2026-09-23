@@ -1,0 +1,3 @@
+# Keep shell scripts executable-friendly when checked out on Windows.
+# This prevents core.autocrlf=true from converting LF to CRLF before WSL/bash runs them.
+*.sh text eol=lf
