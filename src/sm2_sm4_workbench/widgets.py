@@ -95,19 +95,25 @@ class UserCard(QFrame):
             hint = "Select as recipient"
         self.drop_hint.setText(hint)
 
-    def dragEnterEvent(self, event) -> None:  # noqa: N802 - Qt API
-        if (
+    def _can_accept_content_key(self, event) -> bool:
+        return (
             self._has_key
             and not self._wrapped
             and self.recipient.isChecked()
             and event.mimeData().hasFormat(CONTENT_KEY_MIME)
-        ):
+        )
+
+    def dragEnterEvent(self, event) -> None:  # noqa: N802 - Qt API
+        if self._can_accept_content_key(event):
             event.acceptProposedAction()
         else:
             event.ignore()
 
     def dropEvent(self, event) -> None:  # noqa: N802 - Qt API
-        if event.mimeData().hasFormat(CONTENT_KEY_MIME):
+        # Re-check the same guard used by dragEnterEvent.  Normal Qt drag/drop
+        # sequencing already enforces this, but repeating it here prevents a
+        # programmatic/synthetic drop from bypassing recipient/key state.
+        if self._can_accept_content_key(event):
             self.wrapRequested.emit(self.user_id)
             event.acceptProposedAction()
         else:
