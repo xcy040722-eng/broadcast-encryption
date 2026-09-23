@@ -1,2 +1,2 @@
-gmssl-python
+gmssl-python==2.2.2
 pytest>=8.0
