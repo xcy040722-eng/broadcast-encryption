@@ -133,12 +133,14 @@ class WorkbenchWindow(QMainWindow):
     def assemble_to(self, output_path: Path) -> Path:
         path = self.session.assemble_package(Path(output_path))
         self._set_status(f"Assembled broadcast package: {path.name}")
+        self.receiver_result.setText("Package ready — choose a user and try decryption")
         self.refresh()
         return path
 
     def decrypt_user(self, user_id: str, password: str, output_path: Path) -> DecryptResult:
         result = self.session.decrypt_as(user_id, password, Path(output_path))
         self._set_status(f"{user_id}: {result.status.value} · {result.message}")
+        self.receiver_result.setText(f"{result.status.value}\n{result.message}")
         self.refresh()
         return result
 
@@ -158,11 +160,13 @@ class WorkbenchWindow(QMainWindow):
         self._set_status(
             f"Force try {attacker_user_id} → {target_recipient_id}: {result.status.value}"
         )
+        self.receiver_result.setText(f"{result.status.value}\n{result.message}")
         self.refresh()
         return result
 
     def reset_broadcast(self, *, keep_media: bool = True) -> None:
         self.session.reset_broadcast(keep_media=keep_media)
+        self.receiver_result.setText("Assemble a package first")
         self._set_status("Broadcast reset; SM2 user keys preserved")
         self.refresh()
 
@@ -392,12 +396,7 @@ class WorkbenchWindow(QMainWindow):
         filename, _ = QFileDialog.getSaveFileName(self, "Save recovered plaintext", suggested)
         if not filename:
             return
-
-        def run() -> None:
-            result = self.decrypt_user(user_id, password, Path(filename))
-            self.receiver_result.setText(f"{result.status.value}\n{result.message}")
-
-        self._safe(run)
+        self._safe(lambda: self.decrypt_user(user_id, password, Path(filename)))
 
     def _receiver_force_dialog(self) -> None:
         attacker = self.receiver_user.currentText()
@@ -412,12 +411,9 @@ class WorkbenchWindow(QMainWindow):
         filename, _ = QFileDialog.getSaveFileName(self, "Forced-try output (should not survive)", suggested)
         if not filename:
             return
-
-        def run() -> None:
-            result = self.force_try_user(attacker, password, target, Path(filename))
-            self.receiver_result.setText(f"{result.status.value}\n{result.message}")
-
-        self._safe(run)
+        self._safe(
+            lambda: self.force_try_user(attacker, password, target, Path(filename))
+        )
 
     # ------------------------------------------------------------------
     # View synchronization
@@ -487,6 +483,10 @@ class WorkbenchWindow(QMainWindow):
             item = self.wrapped_layout.takeAt(0)
             widget = item.widget()
             if widget is not None:
+                # Detach immediately so reset/refresh cannot show stale chips
+                # while deleteLater waits for the next event-loop iteration.
+                widget.hide()
+                widget.setParent(None)
                 widget.deleteLater()
         if not items:
             label = QLabel("None yet — drag the SM4 key onto a selected user")
