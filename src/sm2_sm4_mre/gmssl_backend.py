@@ -3,10 +3,16 @@
 GmSSL-Python is a ctypes binding over a locally installed GmSSL shared library.
 The import is intentionally lazy so the rest of the package (including package
 inspection) remains importable on machines where GmSSL is not installed yet.
+
+This adapter also performs a fail-fast ABI layout check before any native crypto
+operation.  The project pins gmssl-python 2.2.2 and applies a small compatibility
+patch because unpatched ctypes structures can be smaller than the tested native
+GmSSL C structs, which would otherwise risk native writes past Python objects.
 """
 
 from __future__ import annotations
 
+from ctypes import sizeof
 from pathlib import Path
 from typing import Any, BinaryIO
 
@@ -14,19 +20,71 @@ from .errors import BackendUnavailableError, CryptoOperationError
 
 
 class GmsslBackend:
+    EXPECTED_GMSSL_PYTHON_VERSION = "2.2.2"
+    EXPECTED_CTYPES_SIZES = {
+        "Sm2Key": 128,
+        "Sm4Gcm": 296,
+    }
+
     def __init__(self) -> None:
         try:
             import gmssl  # type: ignore
         except Exception as exc:  # pragma: no cover - environment-specific
             raise BackendUnavailableError(
                 "GmSSL-Python is unavailable. Install the native GmSSL shared "
-                "library first, then `pip install gmssl-python`."
+                "library first, then install requirements-sm2-sm4.txt."
             ) from exc
+
+        issues = self.abi_issues(gmssl)
+        if issues:
+            joined = "; ".join(issues)
+            raise BackendUnavailableError(
+                "Unsafe GmSSL-Python/native ABI layout detected: "
+                f"{joined}. Do not run native crypto with this layout because it can "
+                "cause memory corruption/segmentation faults. Run "
+                "`python tools/patch_gmssl_python_abi.py` and then "
+                "`python tools/patch_gmssl_python_abi.py --check`."
+            )
 
         self.gmssl = gmssl
         self.sm4_key_size = int(gmssl.SM4_KEY_SIZE)
         self.sm4_gcm_iv_size = int(gmssl.SM4_GCM_DEFAULT_IV_SIZE)
         self.sm4_gcm_tag_size = int(gmssl.SM4_GCM_DEFAULT_TAG_SIZE)
+
+    @classmethod
+    def abi_issues(cls, gmssl_module: Any | None = None) -> list[str]:
+        """Return ABI compatibility problems without calling native crypto.
+
+        Importing the module and taking ``ctypes.sizeof`` is safe; the dangerous
+        operation is passing an undersized structure by reference into native code.
+        """
+
+        if gmssl_module is None:
+            try:
+                import gmssl as gmssl_module  # type: ignore
+            except Exception as exc:
+                return [f"gmssl import failed: {exc}"]
+
+        issues: list[str] = []
+        version = getattr(gmssl_module, "GMSSL_PYTHON_VERSION", None)
+        if version != cls.EXPECTED_GMSSL_PYTHON_VERSION:
+            issues.append(
+                f"gmssl-python={version!r}, expected {cls.EXPECTED_GMSSL_PYTHON_VERSION!r}"
+            )
+
+        for name, expected in cls.EXPECTED_CTYPES_SIZES.items():
+            struct_type = getattr(gmssl_module, name, None)
+            if struct_type is None:
+                issues.append(f"missing ctypes structure {name}")
+                continue
+            try:
+                actual = int(sizeof(struct_type))
+            except Exception as exc:
+                issues.append(f"cannot sizeof({name}): {exc}")
+                continue
+            if actual != expected:
+                issues.append(f"sizeof({name})={actual}, expected {expected}")
+        return issues
 
     @staticmethod
     def is_available() -> bool:
