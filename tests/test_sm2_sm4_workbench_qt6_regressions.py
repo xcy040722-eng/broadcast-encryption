@@ -23,9 +23,9 @@ def qapp():
     yield app
 
 
-def _window(tmp_path: Path) -> WorkbenchWindow:
+def _window(tmp_path: Path, *, language: str = "zh_CN") -> WorkbenchWindow:
     session = InteractiveSession(tmp_path / "workspace", backend=FakeBackend())
-    return WorkbenchWindow(session=session)
+    return WorkbenchWindow(session=session, language=language)
 
 
 def test_generate_user_dialog_uses_qlineedit_password_echo(qapp, tmp_path: Path, monkeypatch):
@@ -34,12 +34,16 @@ def test_generate_user_dialog_uses_qlineedit_password_echo(qapp, tmp_path: Path,
 
     def fake_get_text(parent, title, label, echo=QLineEdit.EchoMode.Normal, *args, **kwargs):
         seen["echo"] = echo
+        seen["title"] = title
+        seen["label"] = label
         return "pw-u1", True
 
     monkeypatch.setattr(QInputDialog, "getText", fake_get_text)
     window._prompt_generate_user("u1")
 
     assert seen["echo"] == QLineEdit.EchoMode.Password
+    assert seen["title"] == window.i18n("dialog_generate_title", user_id="u1")
+    assert seen["label"] == window.i18n("dialog_private_password")
     assert "u1" in window.session.snapshot().users
     window.close()
 
@@ -83,8 +87,6 @@ def test_user_card_drop_rechecks_recipient_guard(qapp):
     mime = QMimeData()
     mime.setData(CONTENT_KEY_MIME, b"session-content-key")
 
-    # A synthetic/programmatic drop must not bypass the same state checks that
-    # dragEnterEvent normally enforces.
     denied = _SyntheticDropEvent(mime)
     card.dropEvent(denied)
     assert seen == []
@@ -115,6 +117,37 @@ def test_reset_removes_wrapped_key_widgets_immediately(qapp, tmp_path: Path):
     window.reset_broadcast(keep_media=True)
     after = [label.text() for label in window.wrapped_container.findChildren(QLabel)]
     assert not any(text.startswith("E[") for text in after)
-    assert any("None yet" in text for text in after)
-    assert window.receiver_result.text() == "Assemble a package first"
+    assert window.i18n("wrapped_none") in after
+    assert window.receiver_result.text() == window.i18n("receiver_wait")
+    window.close()
+
+
+def test_chinese_is_default_and_english_remains_available(qapp, tmp_path: Path):
+    zh = _window(tmp_path / "zh")
+    assert zh.windowTitle() == "SM2 + SM4 多接收者交互工作台"
+    assert zh.i18n.language == "zh_CN"
+    assert "阶段" in zh.stage_label.text()
+    zh.close()
+
+    en = _window(tmp_path / "en", language="en_US")
+    assert en.windowTitle() == "SM2 + SM4 Multi-Recipient Workbench"
+    assert en.i18n.language == "en_US"
+    assert en.stage_label.text().startswith("Stage:")
+    en.close()
+
+
+def test_flow_strip_tracks_session_stage(qapp, tmp_path: Path):
+    window = _window(tmp_path)
+    active = [label.property("active") for label in window.flow_strip._labels]
+    assert active == [True, False, False, False, False, False]
+
+    window.generate_user("u2", "pw-u2")
+    source = tmp_path / "flow.bin"
+    source.write_bytes(b"flow")
+    window.set_media_path(source)
+    window.set_recipient("u2", True)
+    window.generate_material()
+
+    active = [label.property("active") for label in window.flow_strip._labels]
+    assert active == [False, True, False, False, False, False]
     window.close()
