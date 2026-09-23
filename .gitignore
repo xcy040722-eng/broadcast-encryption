@@ -2,6 +2,16 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.venv/
+
+# SM2/SM4 本地测试密钥与产物（禁止提交）
+keys/
+*.smre
+*.pem
+*.part
+recovered-*.bin
+should-not-exist-*.bin
+demo.bin
 
 # 生成的媒体产物（非源码，可由脚本重建）
 *.mp4
