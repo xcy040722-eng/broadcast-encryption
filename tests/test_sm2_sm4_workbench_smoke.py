@@ -51,7 +51,6 @@ def test_workbench_real_action_path_with_fake_backend(qapp, tmp_path: Path):
     assert snap.content_key_fingerprint
     assert snap.content_key_fingerprint in window.content_key.fingerprint.text()
 
-    # Direct-manipulation drop targets invoke these exact public methods.
     window.wrap_for_user("u2")
     window.wrap_for_user("u4")
     assert set(session.snapshot().wrapped_key_fingerprints) == {"u2", "u4"}
@@ -100,7 +99,6 @@ def test_workbench_view_never_renders_raw_content_key(qapp, tmp_path: Path):
     window.set_recipient("u2", True)
     window.generate_material()
 
-    # Test may inspect private session state; the widget must only receive the fingerprint.
     assert session._material is not None
     raw_hex = session._material.content_key.hex()
     visible = "\n".join(
@@ -136,6 +134,9 @@ def test_reset_updates_visible_state_but_preserves_user_keys(qapp, tmp_path: Pat
     assert snap.content_key_fingerprint is None
     assert snap.wrapped_key_fingerprints == {}
     assert snap.payload_path is None
-    assert window.content_key.fingerprint.text() == "not generated"
-    assert all(card.key_status.text() == "SM2 key: ready" for card in window.user_cards.values())
+    assert window.content_key.fingerprint.text() == window.i18n("not_generated")
+    assert all(
+        card.key_status.text() == window.i18n("user_key_ready")
+        for card in window.user_cards.values()
+    )
     window.close()
