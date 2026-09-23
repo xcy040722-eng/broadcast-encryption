@@ -1,8 +1,8 @@
-"""Functional PySide6 workbench backed by the real InteractiveSession.
+"""PySide6 workbench backed by the real InteractiveSession.
 
-Version 0.1 intentionally prioritizes interaction correctness over visual polish.
-Every crypto action on screen delegates to InteractiveSession; this module does
-not implement or duplicate cryptographic operations.
+The UI is Chinese-first by default, with an English fallback. Every cryptographic
+action still delegates to InteractiveSession; this module contains no duplicate
+cryptographic implementation.
 """
 
 from __future__ import annotations
@@ -32,7 +32,15 @@ from PySide6.QtWidgets import (
 from src.sm2_sm4_mre.interactive_session import InteractiveSession, SessionStage
 from src.sm2_sm4_mre.types import DecryptResult
 
-from .widgets import ContentKeyCard, PackageCard, Sm4EngineCard, UserCard, WrappedKeyChip
+from .i18n import DEFAULT_LANGUAGE, Translator
+from .widgets import (
+    ContentKeyCard,
+    FlowStrip,
+    PackageCard,
+    Sm4EngineCard,
+    UserCard,
+    WrappedKeyChip,
+)
 
 
 T = TypeVar("T")
@@ -40,32 +48,95 @@ DEFAULT_USERS = ("u1", "u2", "u3", "u4")
 
 
 LIGHT_STYLE = """
-QMainWindow, QWidget { background: #F4F6FA; color: #182234; font-size: 13px; }
+QMainWindow, QWidget {
+    background: #F4F7FB;
+    color: #172033;
+    font-size: 13px;
+}
 QFrame#panel, QFrame#userCard, QFrame#contentKeyCard, QFrame#engineCard,
-QFrame#packageCard, QFrame#wrappedChip {
-    background: white; border: 1px solid #DCE3EC; border-radius: 9px;
+QFrame#packageCard, QFrame#wrappedChip, QFrame#flowStrip {
+    background: #FFFFFF;
+    border: 1px solid #DCE4EE;
+    border-radius: 10px;
 }
 QFrame#userCard { min-width: 205px; }
-QLabel#userTitle, QLabel#objectTitle { font-size: 15px; font-weight: 600; }
-QLabel#muted { color: #728096; }
+QLabel#userTitle, QLabel#objectTitle {
+    font-size: 15px;
+    font-weight: 650;
+    color: #14213A;
+}
+QLabel#muted { color: #71809A; }
+QLabel#stageBadge {
+    background: #EAF2FF;
+    color: #215AA5;
+    border: 1px solid #B7CEF1;
+    border-radius: 11px;
+    padding: 5px 10px;
+    font-weight: 650;
+}
+QLabel#flowStep {
+    background: #F4F6F9;
+    color: #78869A;
+    border: 1px solid #E0E6EF;
+    border-radius: 7px;
+    padding: 7px 5px;
+}
+QLabel#flowStep[done="true"] {
+    background: #EEF7F2;
+    color: #317052;
+    border-color: #C6E3D2;
+}
+QLabel#flowStep[active="true"] {
+    background: #EAF2FF;
+    color: #174F98;
+    border: 1px solid #8EB4E8;
+    font-weight: 650;
+}
 QLabel#dropTarget {
-    border: 1px dashed #A9B4C4; border-radius: 7px; color: #59677D;
-    background: #F8FAFD; padding: 6px;
+    border: 1px dashed #9CB0CA;
+    border-radius: 8px;
+    color: #52647E;
+    background: #F8FAFD;
+    padding: 7px;
 }
 QPushButton {
-    background: white; border: 1px solid #C7D1DE; border-radius: 6px;
-    padding: 7px 10px;
+    background: #FFFFFF;
+    border: 1px solid #C7D2E1;
+    border-radius: 7px;
+    padding: 7px 11px;
 }
-QPushButton:hover { background: #EEF3F9; }
-QPushButton:disabled { color: #A9B4C4; background: #F7F8FA; }
-QPushButton#primary { background: #EAF1FB; border-color: #8EAFE0; color: #285A9D; }
-QPlainTextEdit { background: #FFFFFF; border: 1px solid #DCE3EC; border-radius: 7px; }
-QComboBox { background: white; border: 1px solid #C7D1DE; border-radius: 5px; padding: 5px; }
+QPushButton:hover { background: #EEF4FC; border-color: #9BB7DC; }
+QPushButton:disabled { color: #A8B3C3; background: #F6F8FA; }
+QPushButton#primary {
+    background: #E8F1FF;
+    border-color: #87ADE1;
+    color: #205B9F;
+    font-weight: 600;
+}
+QPlainTextEdit {
+    background: #FFFFFF;
+    border: 1px solid #DCE4EE;
+    border-radius: 8px;
+    padding: 4px;
+}
+QComboBox {
+    background: #FFFFFF;
+    border: 1px solid #C7D2E1;
+    border-radius: 6px;
+    padding: 5px;
+}
+QLabel#statusBar {
+    background: #EDF3FA;
+    border: 1px solid #D9E3F0;
+    border-radius: 7px;
+    padding: 7px 10px;
+    color: #52647E;
+}
 """
 
 
 class WorkbenchWindow(QMainWindow):
-    """First functional UI prototype for the SM2 + SM4 teaching system."""
+    """Interactive teaching UI for the validated SM2 + SM4 backend."""
 
     def __init__(
         self,
@@ -73,6 +144,7 @@ class WorkbenchWindow(QMainWindow):
         session: InteractiveSession | None = None,
         workspace: Path | None = None,
         user_ids: tuple[str, ...] = DEFAULT_USERS,
+        language: str = DEFAULT_LANGUAGE,
     ) -> None:
         super().__init__()
         if session is None:
@@ -80,10 +152,11 @@ class WorkbenchWindow(QMainWindow):
             session = InteractiveSession(root)
         self.session = session
         self.user_ids = user_ids
+        self.i18n = Translator(language)
         self._passwords: dict[str, str] = {}
 
-        self.setWindowTitle("SM2 + SM4 Interactive Cryptography Workbench")
-        self.resize(1360, 820)
+        self.setWindowTitle(self.i18n("window_title"))
+        self.resize(1440, 860)
         self.setStyleSheet(LIGHT_STYLE)
 
         self.user_cards: dict[str, UserCard] = {}
@@ -91,55 +164,64 @@ class WorkbenchWindow(QMainWindow):
         self.refresh()
 
     # ------------------------------------------------------------------
-    # Public action methods. Tests and future controllers can call these
-    # without dialogs; button/drop handlers call the same methods.
+    # Public actions
     # ------------------------------------------------------------------
     def generate_user(self, user_id: str, password: str) -> None:
         self.session.generate_user_key(user_id, password)
         self._passwords[user_id] = password
-        self._set_status(f"Generated real SM2 key pair for {user_id}")
+        self._set_status(self.i18n("status_key_generated", user_id=user_id))
         self.refresh()
 
     def set_media_path(self, path: Path) -> None:
         self.session.set_media(Path(path))
-        self._set_status(f"Selected media: {Path(path).name}")
+        self._set_status(self.i18n("status_media_selected", name=Path(path).name))
         self.refresh()
 
     def set_recipient(self, user_id: str, selected: bool) -> None:
         self.session.select_recipient(user_id, selected)
-        self._set_status(f"{user_id}: {'recipient selected' if selected else 'recipient removed'}")
+        key = "status_recipient_selected" if selected else "status_recipient_removed"
+        self._set_status(self.i18n(key, user_id=user_id))
         self.refresh()
 
     def generate_material(self) -> None:
         snap = self.session.generate_content_material()
         self._set_status(
-            "Generated one real SM4 content key · fingerprint "
-            + str(snap.content_key_fingerprint)
+            self.i18n(
+                "status_material_generated",
+                fingerprint=str(snap.content_key_fingerprint),
+            )
         )
         self.refresh()
 
     def wrap_for_user(self, user_id: str) -> bytes:
         wrapped = self.session.wrap_for(user_id)
-        self._set_status(f"SM2 wrapped the session content key for {user_id}")
+        self._set_status(self.i18n("status_wrapped", user_id=user_id))
         self.refresh()
         return wrapped
 
     def encrypt_payload(self) -> Path:
         path = self.session.encrypt_payload()
-        self._set_status("SM4-GCM encrypted the media exactly once")
+        self._set_status(self.i18n("status_payload_encrypted"))
         self.refresh()
         return path
 
     def assemble_to(self, output_path: Path) -> Path:
         path = self.session.assemble_package(Path(output_path))
-        self._set_status(f"Assembled broadcast package: {path.name}")
-        self.receiver_result.setText("Package ready — choose a user and try decryption")
+        self._set_status(self.i18n("status_package_assembled", name=path.name))
+        self.receiver_result.setText(self.i18n("receiver_ready"))
         self.refresh()
         return path
 
     def decrypt_user(self, user_id: str, password: str, output_path: Path) -> DecryptResult:
         result = self.session.decrypt_as(user_id, password, Path(output_path))
-        self._set_status(f"{user_id}: {result.status.value} · {result.message}")
+        self._set_status(
+            self.i18n(
+                "status_receiver",
+                user_id=user_id,
+                status=result.status.value,
+                message=result.message,
+            )
+        )
         self.receiver_result.setText(f"{result.status.value}\n{result.message}")
         self.refresh()
         return result
@@ -158,7 +240,12 @@ class WorkbenchWindow(QMainWindow):
             output_path=Path(output_path),
         )
         self._set_status(
-            f"Force try {attacker_user_id} → {target_recipient_id}: {result.status.value}"
+            self.i18n(
+                "status_force",
+                attacker=attacker_user_id,
+                target=target_recipient_id,
+                status=result.status.value,
+            )
         )
         self.receiver_result.setText(f"{result.status.value}\n{result.message}")
         self.refresh()
@@ -166,8 +253,8 @@ class WorkbenchWindow(QMainWindow):
 
     def reset_broadcast(self, *, keep_media: bool = True) -> None:
         self.session.reset_broadcast(keep_media=keep_media)
-        self.receiver_result.setText("Assemble a package first")
-        self._set_status("Broadcast reset; SM2 user keys preserved")
+        self.receiver_result.setText(self.i18n("receiver_wait"))
+        self._set_status(self.i18n("status_reset"))
         self.refresh()
 
     # ------------------------------------------------------------------
@@ -181,34 +268,37 @@ class WorkbenchWindow(QMainWindow):
 
         header = QHBoxLayout()
         title_box = QVBoxLayout()
-        title = QLabel("SM2 + SM4 Multi-Recipient Workbench")
-        title.setStyleSheet("font-size: 20px; font-weight: 650;")
-        subtitle = QLabel("Direct manipulation → InteractiveSession → real GmSSL")
+        title = QLabel(self.i18n("header_title"))
+        title.setStyleSheet("font-size: 21px; font-weight: 700;")
+        subtitle = QLabel(self.i18n("header_subtitle"))
         subtitle.setObjectName("muted")
         title_box.addWidget(title)
         title_box.addWidget(subtitle)
         header.addLayout(title_box)
         header.addStretch(1)
         self.stage_label = QLabel()
-        self.stage_label.setStyleSheet("font-weight: 600;")
+        self.stage_label.setObjectName("stageBadge")
         header.addWidget(self.stage_label)
-        reset = QPushButton("Reset broadcast")
+        reset = QPushButton(self.i18n("reset_broadcast"))
         reset.clicked.connect(lambda: self._safe(lambda: self.reset_broadcast(keep_media=True)))
         header.addWidget(reset)
         root.addLayout(header)
 
-        splitter = QSplitter(Qt.Horizontal)
+        self.flow_strip = FlowStrip(self.i18n)
+        root.addWidget(self.flow_strip)
+
+        splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(self._build_users_panel())
         splitter.addWidget(self._build_workspace_panel())
         splitter.addWidget(self._build_receiver_panel())
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
         splitter.setStretchFactor(2, 0)
-        splitter.setSizes([260, 760, 300])
+        splitter.setSizes([270, 820, 310])
         root.addWidget(splitter, 1)
 
-        self.status_label = QLabel("Ready")
-        self.status_label.setObjectName("muted")
+        self.status_label = QLabel(self.i18n("status_ready"))
+        self.status_label.setObjectName("statusBar")
         self.status_label.setWordWrap(True)
         root.addWidget(self.status_label)
 
@@ -224,9 +314,9 @@ class WorkbenchWindow(QMainWindow):
 
     def _build_users_panel(self) -> QWidget:
         panel, layout = self._panel()
-        title = QLabel("Users / recipient set S")
+        title = QLabel(self.i18n("panel_users"))
         title.setObjectName("objectTitle")
-        explainer = QLabel("Generate real SM2 keys, then choose recipients before generating K.")
+        explainer = QLabel(self.i18n("panel_users_help"))
         explainer.setWordWrap(True)
         explainer.setObjectName("muted")
         layout.addWidget(title)
@@ -234,14 +324,14 @@ class WorkbenchWindow(QMainWindow):
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
         inner = QWidget()
         inner_layout = QVBoxLayout(inner)
         inner_layout.setContentsMargins(0, 0, 0, 0)
         inner_layout.setSpacing(8)
 
         for user_id in self.user_ids:
-            card = UserCard(user_id)
+            card = UserCard(user_id, self.i18n)
             card.generateRequested.connect(self._prompt_generate_user)
             card.recipientChanged.connect(self._recipient_changed)
             card.wrapRequested.connect(
@@ -256,15 +346,15 @@ class WorkbenchWindow(QMainWindow):
 
     def _build_workspace_panel(self) -> QWidget:
         panel, layout = self._panel()
-        title = QLabel("Workspace")
+        title = QLabel(self.i18n("panel_workspace"))
         title.setObjectName("objectTitle")
         layout.addWidget(title)
 
         media_row = QHBoxLayout()
-        self.media_label = QLabel("No media selected")
+        self.media_label = QLabel(self.i18n("no_media"))
         self.media_label.setObjectName("muted")
         self.media_label.setWordWrap(True)
-        choose_media = QPushButton("Choose media…")
+        choose_media = QPushButton(self.i18n("choose_media"))
         choose_media.clicked.connect(self._choose_media)
         self.choose_media_button = choose_media
         media_row.addWidget(self.media_label, 1)
@@ -272,8 +362,8 @@ class WorkbenchWindow(QMainWindow):
         layout.addLayout(media_row)
 
         material_row = QHBoxLayout()
-        self.content_key = ContentKeyCard()
-        self.generate_material_button = QPushButton("Generate content material")
+        self.content_key = ContentKeyCard(self.i18n)
+        self.generate_material_button = QPushButton(self.i18n("generate_material"))
         self.generate_material_button.setObjectName("primary")
         self.generate_material_button.clicked.connect(
             lambda: self._safe(self.generate_material)
@@ -282,11 +372,11 @@ class WorkbenchWindow(QMainWindow):
         material_row.addWidget(self.generate_material_button)
         layout.addLayout(material_row)
 
-        self.engine = Sm4EngineCard()
+        self.engine = Sm4EngineCard(self.i18n)
         self.engine.encryptRequested.connect(lambda: self._safe(self.encrypt_payload))
         layout.addWidget(self.engine)
 
-        wrapped_title = QLabel("Wrapped keys")
+        wrapped_title = QLabel(self.i18n("wrapped_keys"))
         wrapped_title.setObjectName("objectTitle")
         layout.addWidget(wrapped_title)
         self.wrapped_container = QWidget()
@@ -295,11 +385,11 @@ class WorkbenchWindow(QMainWindow):
         self.wrapped_layout.setSpacing(5)
         layout.addWidget(self.wrapped_container)
 
-        self.package_card = PackageCard()
+        self.package_card = PackageCard(self.i18n)
         self.package_card.assembleRequested.connect(self._choose_package_output)
         layout.addWidget(self.package_card)
 
-        events_title = QLabel("Session events")
+        events_title = QLabel(self.i18n("session_events"))
         events_title.setObjectName("objectTitle")
         self.event_log = QPlainTextEdit()
         self.event_log.setReadOnly(True)
@@ -310,33 +400,31 @@ class WorkbenchWindow(QMainWindow):
 
     def _build_receiver_panel(self) -> QWidget:
         panel, layout = self._panel()
-        title = QLabel("Receiver lab")
+        title = QLabel(self.i18n("panel_receiver"))
         title.setObjectName("objectTitle")
-        info = QLabel(
-            "After package assembly, try an authorized user, a non-recipient, or force a wrong SM2 key onto another user's wrapped key."
-        )
+        info = QLabel(self.i18n("panel_receiver_help"))
         info.setWordWrap(True)
         info.setObjectName("muted")
         layout.addWidget(title)
         layout.addWidget(info)
 
-        layout.addWidget(QLabel("Act as user"))
+        layout.addWidget(QLabel(self.i18n("act_as_user")))
         self.receiver_user = QComboBox()
         self.receiver_user.addItems(self.user_ids)
         layout.addWidget(self.receiver_user)
 
-        self.decrypt_button = QPushButton("Decrypt as selected user")
+        self.decrypt_button = QPushButton(self.i18n("decrypt_selected"))
         self.decrypt_button.clicked.connect(self._receiver_decrypt_dialog)
         layout.addWidget(self.decrypt_button)
 
-        layout.addWidget(QLabel("Force target wrapped key"))
+        layout.addWidget(QLabel(self.i18n("force_target")))
         self.force_target = QComboBox()
         layout.addWidget(self.force_target)
-        self.force_button = QPushButton("Force try wrong private key")
+        self.force_button = QPushButton(self.i18n("force_try"))
         self.force_button.clicked.connect(self._receiver_force_dialog)
         layout.addWidget(self.force_button)
 
-        self.receiver_result = QLabel("Assemble a package first")
+        self.receiver_result = QLabel(self.i18n("receiver_wait"))
         self.receiver_result.setWordWrap(True)
         self.receiver_result.setObjectName("muted")
         layout.addWidget(self.receiver_result)
@@ -344,13 +432,13 @@ class WorkbenchWindow(QMainWindow):
         return panel
 
     # ------------------------------------------------------------------
-    # Dialog/UI handlers
+    # Dialog handlers
     # ------------------------------------------------------------------
     def _prompt_generate_user(self, user_id: str) -> None:
         password, ok = QInputDialog.getText(
             self,
-            f"Generate SM2 key for {user_id}",
-            "Private-key password:",
+            self.i18n("dialog_generate_title", user_id=user_id),
+            self.i18n("dialog_private_password"),
             QLineEdit.EchoMode.Password,
         )
         if ok and password:
@@ -360,14 +448,14 @@ class WorkbenchWindow(QMainWindow):
         self._safe(lambda: self.set_recipient(user_id, selected))
 
     def _choose_media(self) -> None:
-        filename, _ = QFileDialog.getOpenFileName(self, "Choose media/file")
+        filename, _ = QFileDialog.getOpenFileName(self, self.i18n("dialog_choose_media"))
         if filename:
             self._safe(lambda: self.set_media_path(Path(filename)))
 
     def _choose_package_output(self) -> None:
         filename, _ = QFileDialog.getSaveFileName(
             self,
-            "Save broadcast package",
+            self.i18n("dialog_save_package"),
             "broadcast.smre",
             "SM2+SM4 package (*.smre)",
         )
@@ -381,8 +469,8 @@ class WorkbenchWindow(QMainWindow):
             return self._passwords[user_id]
         password, ok = QInputDialog.getText(
             self,
-            f"Private key password for {user_id}",
-            "Password:",
+            self.i18n("dialog_password_title", user_id=user_id),
+            self.i18n("dialog_password"),
             QLineEdit.EchoMode.Password,
         )
         return password if ok and password else None
@@ -393,7 +481,11 @@ class WorkbenchWindow(QMainWindow):
         if not password:
             return
         suggested = f"recovered-{user_id}.bin"
-        filename, _ = QFileDialog.getSaveFileName(self, "Save recovered plaintext", suggested)
+        filename, _ = QFileDialog.getSaveFileName(
+            self,
+            self.i18n("dialog_save_plaintext"),
+            suggested,
+        )
         if not filename:
             return
         self._safe(lambda: self.decrypt_user(user_id, password, Path(filename)))
@@ -402,13 +494,17 @@ class WorkbenchWindow(QMainWindow):
         attacker = self.receiver_user.currentText()
         target = self.force_target.currentText()
         if not target:
-            self._set_status("No wrapped-key target is available")
+            self._set_status(self.i18n("status_no_force_target"))
             return
         password = self._password_for(attacker)
         if not password:
             return
         suggested = f"force-{attacker}-to-{target}.bin"
-        filename, _ = QFileDialog.getSaveFileName(self, "Forced-try output (should not survive)", suggested)
+        filename, _ = QFileDialog.getSaveFileName(
+            self,
+            self.i18n("dialog_force_output"),
+            suggested,
+        )
         if not filename:
             return
         self._safe(
@@ -420,7 +516,10 @@ class WorkbenchWindow(QMainWindow):
     # ------------------------------------------------------------------
     def refresh(self) -> None:
         snap = self.session.snapshot()
-        self.stage_label.setText(f"Stage: {snap.stage.value}")
+        self.stage_label.setText(
+            self.i18n("stage", value=self.i18n.stage(snap.stage.value))
+        )
+        self.flow_strip.update_stage(snap.stage.value)
         locked = snap.package_id is not None
 
         for user_id, card in self.user_cards.items():
@@ -439,7 +538,7 @@ class WorkbenchWindow(QMainWindow):
             except OSError:
                 self.media_label.setText(path.name)
         else:
-            self.media_label.setText("No media selected")
+            self.media_label.setText(self.i18n("no_media"))
         self.choose_media_button.setEnabled(not locked)
 
         self.generate_material_button.setEnabled(
@@ -483,13 +582,11 @@ class WorkbenchWindow(QMainWindow):
             item = self.wrapped_layout.takeAt(0)
             widget = item.widget()
             if widget is not None:
-                # Detach immediately so reset/refresh cannot show stale chips
-                # while deleteLater waits for the next event-loop iteration.
                 widget.hide()
                 widget.setParent(None)
                 widget.deleteLater()
         if not items:
-            label = QLabel("None yet — drag the SM4 key onto a selected user")
+            label = QLabel(self.i18n("wrapped_none"))
             label.setObjectName("muted")
             self.wrapped_layout.addWidget(label)
             return
