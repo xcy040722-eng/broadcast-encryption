@@ -1,6 +1,7 @@
 """SM2 + SM4 multi-recipient hybrid encryption backend."""
 
 from .gmssl_backend import GmsslBackend
+from .interactive_session import InteractiveSession, SessionSnapshot, SessionStage
 from .package import inspect_package
 from .service import (
     decrypt_media,
@@ -15,6 +16,9 @@ from .types import DecryptResult, DecryptStatus, EncryptResult
 
 __all__ = [
     "GmsslBackend",
+    "InteractiveSession",
+    "SessionSnapshot",
+    "SessionStage",
     "DecryptResult",
     "DecryptStatus",
     "EncryptResult",
