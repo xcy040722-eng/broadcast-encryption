@@ -1,6 +1,8 @@
-"""Optional integration test against the real GmSSL shared library.
+"""Integration test against the real GmSSL shared library.
 
-Skipped automatically when GmSSL-Python/native libgmssl is not available.
+Skipped automatically only when GmSSL-Python/native libgmssl cannot be imported.
+An ABI layout mismatch is a hard failure (not a skip) because an undersized
+ctypes structure can otherwise corrupt memory and cause delayed segfaults.
 """
 
 from __future__ import annotations
@@ -21,6 +23,13 @@ pytestmark = pytest.mark.skipif(
 
 
 def test_real_gmssl_sm2_sm4_roundtrip(tmp_path: Path):
+    issues = GmsslBackend.abi_issues()
+    assert not issues, (
+        "Unsafe GmSSL ctypes ABI layout: "
+        + "; ".join(issues)
+        + ". Run `python tools/patch_gmssl_python_abi.py` before native tests."
+    )
+
     backend = GmsslBackend()
     u2 = generate_user_keys("u2", "test-password", tmp_path / "keys", backend=backend)
     src = tmp_path / "sample.bin"
