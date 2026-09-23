@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .venv/
+.venv-sm2-sm4/
 
 # SM2/SM4 本地测试密钥与产物（禁止提交）
 keys/
