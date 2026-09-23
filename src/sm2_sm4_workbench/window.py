@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Callable, TypeVar
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import (
     QComboBox,
     QFileDialog,
@@ -18,6 +19,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QInputDialog,
     QLabel,
+    QLineEdit,
     QMainWindow,
     QPlainTextEdit,
     QPushButton,
@@ -345,7 +347,7 @@ class WorkbenchWindow(QMainWindow):
             self,
             f"Generate SM2 key for {user_id}",
             "Private-key password:",
-            QInputDialog.TextInput,
+            QLineEdit.EchoMode.Password,
         )
         if ok and password:
             self._safe(lambda: self.generate_user(user_id, password))
@@ -377,7 +379,7 @@ class WorkbenchWindow(QMainWindow):
             self,
             f"Private key password for {user_id}",
             "Password:",
-            QInputDialog.TextInput,
+            QLineEdit.EchoMode.Password,
         )
         return password if ok and password else None
 
@@ -477,7 +479,7 @@ class WorkbenchWindow(QMainWindow):
             )
         )
         cursor = self.event_log.textCursor()
-        cursor.movePosition(cursor.End)
+        cursor.movePosition(QTextCursor.MoveOperation.End)
         self.event_log.setTextCursor(cursor)
 
     def _refresh_wrapped_keys(self, items: dict[str, str]) -> None:
