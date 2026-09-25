@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSplitter,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -33,6 +34,7 @@ from src.sm2_sm4_mre.interactive_session import InteractiveSession, SessionStage
 from src.sm2_sm4_mre.types import DecryptResult
 
 from .i18n import DEFAULT_LANGUAGE, Translator
+from .relation_canvas import CryptoRelationCanvas
 from .widgets import (
     ContentKeyCard,
     FlowStrip,
@@ -60,6 +62,11 @@ QFrame#packageCard, QFrame#wrappedChip, QFrame#flowStrip {
     border-radius: 10px;
 }
 QFrame#userCard { min-width: 205px; }
+QWidget#cryptoRelationCanvas {
+    background: #FBFCFE;
+    border: 1px solid #D8E2EF;
+    border-radius: 10px;
+}
 QLabel#userTitle, QLabel#objectTitle {
     font-size: 15px;
     font-weight: 650;
@@ -124,6 +131,25 @@ QComboBox {
     border: 1px solid #C7D2E1;
     border-radius: 6px;
     padding: 5px;
+}
+QTabWidget::pane {
+    background: #FFFFFF;
+    border: 1px solid #DCE4EE;
+    border-radius: 8px;
+    top: -1px;
+}
+QTabBar::tab {
+    background: #F1F4F8;
+    color: #6A7890;
+    border: 1px solid #DCE4EE;
+    border-bottom: none;
+    padding: 7px 14px;
+    margin-right: 3px;
+}
+QTabBar::tab:selected {
+    background: #FFFFFF;
+    color: #1F568F;
+    font-weight: 600;
 }
 QLabel#statusBar {
     background: #EDF3FA;
@@ -372,30 +398,65 @@ class WorkbenchWindow(QMainWindow):
         material_row.addWidget(self.generate_material_button)
         layout.addLayout(material_row)
 
+        # v0.2.1: the main workspace is now an object relationship canvas rather
+        # than a vertical form.  It is still direct manipulation: the K node is
+        # draggable and its drop targets emit real InteractiveSession actions.
+        self.workspace_tabs = QTabWidget()
+        graph_tab = QWidget()
+        graph_layout = QVBoxLayout(graph_tab)
+        graph_layout.setContentsMargins(8, 8, 8, 8)
+        graph_layout.setSpacing(8)
+
+        graph_title = QLabel(
+            "密码学对象关系图" if self.i18n.language == "zh_CN" else "Cryptographic object graph"
+        )
+        graph_title.setObjectName("objectTitle")
+        graph_layout.addWidget(graph_title)
+
+        self.relation_canvas = CryptoRelationCanvas(self.i18n)
+        self.relation_canvas.wrapRequested.connect(
+            lambda uid: self._safe(lambda: self.wrap_for_user(uid))
+        )
+        self.relation_canvas.encryptRequested.connect(
+            lambda: self._safe(self.encrypt_payload)
+        )
+        graph_layout.addWidget(self.relation_canvas, 1)
+
+        self.package_card = PackageCard(self.i18n)
+        self.package_card.assembleRequested.connect(self._choose_package_output)
+        graph_layout.addWidget(self.package_card)
+
+        details_tab = QWidget()
+        details_layout = QVBoxLayout(details_tab)
+        details_layout.setContentsMargins(8, 8, 8, 8)
+        details_layout.setSpacing(7)
+
         self.engine = Sm4EngineCard(self.i18n)
         self.engine.encryptRequested.connect(lambda: self._safe(self.encrypt_payload))
-        layout.addWidget(self.engine)
+        details_layout.addWidget(self.engine)
 
         wrapped_title = QLabel(self.i18n("wrapped_keys"))
         wrapped_title.setObjectName("objectTitle")
-        layout.addWidget(wrapped_title)
+        details_layout.addWidget(wrapped_title)
         self.wrapped_container = QWidget()
         self.wrapped_layout = QVBoxLayout(self.wrapped_container)
         self.wrapped_layout.setContentsMargins(0, 0, 0, 0)
         self.wrapped_layout.setSpacing(5)
-        layout.addWidget(self.wrapped_container)
-
-        self.package_card = PackageCard(self.i18n)
-        self.package_card.assembleRequested.connect(self._choose_package_output)
-        layout.addWidget(self.package_card)
+        details_layout.addWidget(self.wrapped_container)
 
         events_title = QLabel(self.i18n("session_events"))
         events_title.setObjectName("objectTitle")
         self.event_log = QPlainTextEdit()
         self.event_log.setReadOnly(True)
         self.event_log.setMaximumBlockCount(200)
-        layout.addWidget(events_title)
-        layout.addWidget(self.event_log, 1)
+        details_layout.addWidget(events_title)
+        details_layout.addWidget(self.event_log, 1)
+
+        graph_tab_text = "关系图" if self.i18n.language == "zh_CN" else "Object graph"
+        details_tab_text = "对象细节 / 日志" if self.i18n.language == "zh_CN" else "Details / log"
+        self.workspace_tabs.addTab(graph_tab, graph_tab_text)
+        self.workspace_tabs.addTab(details_tab, details_tab_text)
+        layout.addWidget(self.workspace_tabs, 1)
         return panel
 
     def _build_receiver_panel(self) -> QWidget:
@@ -530,8 +591,10 @@ class WorkbenchWindow(QMainWindow):
                 locked=locked,
             )
 
+        media_name: str | None = None
         if snap.input_path:
             path = Path(snap.input_path)
+            media_name = path.name
             try:
                 size = path.stat().st_size
                 self.media_label.setText(f"{path.name}\n{size:,} bytes")
@@ -554,6 +617,15 @@ class WorkbenchWindow(QMainWindow):
         self.package_card.update_state(
             can_assemble=snap.stage == SessionStage.READY_TO_ASSEMBLE,
             package_path=snap.package_path,
+        )
+        self.relation_canvas.update_state(
+            recipients=tuple(snap.recipients),
+            wrapped=tuple(sorted(snap.wrapped_key_fingerprints)),
+            content_key_fingerprint=snap.content_key_fingerprint,
+            media_name=media_name,
+            payload_ready=snap.payload_path is not None,
+            package_ready=snap.stage == SessionStage.READY_TO_ASSEMBLE,
+            package_assembled=snap.package_path is not None,
         )
 
         package_ready = snap.package_path is not None
