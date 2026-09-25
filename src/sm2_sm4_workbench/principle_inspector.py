@@ -260,15 +260,16 @@ class PrincipleInspector(QWidget):
             "state": "本次真实状态" if zh else "Live state",
             "boundary": "安全边界" if zh else "Security boundary",
         }
+        sep = "：" if zh else ": "
         html = f"""
         <h2>{escape(title)}</h2>
-        <p><b>{labels['role']}：</b>{escape(role)}</p>
-        <p><b>{labels['inputs']}：</b>{escape(inputs)}</p>
-        <p><b>{labels['operation']}：</b><code>{escape(spec.formula)}</code></p>
-        <p><b>{labels['outputs']}：</b>{escape(outputs)}</p>
+        <p><b>{labels['role']}{sep}</b>{escape(role)}</p>
+        <p><b>{labels['inputs']}{sep}</b>{escape(inputs)}</p>
+        <p><b>{labels['operation']}{sep}</b><code>{escape(spec.formula)}</code></p>
+        <p><b>{labels['outputs']}{sep}</b>{escape(outputs)}</p>
         <hr/>
-        <p><b>{labels['state']}：</b>{escape(state)}</p>
-        <p><b>{labels['boundary']}：</b>{escape(boundary)}</p>
+        <p><b>{labels['state']}{sep}</b>{escape(state)}</p>
+        <p><b>{labels['boundary']}{sep}</b>{escape(boundary)}</p>
         """
         self.browser.setHtml(html)
 
