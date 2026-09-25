@@ -8,6 +8,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 
 pytest.importorskip("PySide6")
+from PySide6.QtCore import QPointF
 from PySide6.QtWidgets import QApplication
 
 from src.sm2_sm4_mre.interactive_session import InteractiveSession
@@ -33,6 +34,15 @@ def _prepared_window(tmp_path: Path) -> tuple[DefenseWorkbenchWindow, Path]:
     window.set_recipient("u2", True)
     window.generate_material()
     return window, source
+
+
+def _receiver_node_center(width_px: int, index: int) -> QPointF:
+    margin = 18.0
+    width = max(680.0, float(width_px) - margin * 2)
+    node_w = min(180.0, (width - 80.0) / 5.0)
+    gap = (width - node_w * 5.0) / 4.0
+    x = margin + index * (node_w + gap) + node_w / 2.0
+    return QPointF(x, 106.0)
 
 
 def test_sender_object_inspector_uses_safe_snapshot_only(qapp, tmp_path: Path):
@@ -79,13 +89,13 @@ def test_receiver_inspector_projects_real_result_trace_without_secrets(qapp, tmp
     assert recovered.read_bytes() == source.read_bytes()
 
     window.receiver_flow.resize(780, 280)
-    assert window._receiver_topic_at(window._receiver_rect_for_test(4).center()) == "receiver:gcm" if hasattr(window, "_receiver_rect_for_test") else True
+    assert window._receiver_topic_at(_receiver_node_center(780, 4)) == "receiver:gcm"
 
     window._show_principle("receiver:gcm")
     text = window.principle_inspector.browser.toPlainText()
     assert "GCM" in text
     assert "认证=是" in text or "authenticated=yes" in text
-    assert result.trace.content_key_fingerprint not in text or result.trace.content_key_fingerprint == window.receiver_flow.state.content_key_fingerprint
+    assert recovered.name in text
 
     private_pem = window.session.users["u2"].private_key.read_text(encoding="utf-8")
     assert private_pem not in text
