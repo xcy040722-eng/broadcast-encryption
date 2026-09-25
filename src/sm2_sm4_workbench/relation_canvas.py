@@ -1,13 +1,13 @@
 """Interactive relationship canvas for the SM2 + SM4 workbench.
 
-The canvas is a visual projection of InteractiveSession state.  It never owns or
-receives raw secret key material.  The only content-key value exposed here is
+The canvas is a visual projection of InteractiveSession state. It never owns or
+receives raw secret key material. The only content-key value exposed here is
 its SM3 fingerprint.
 
 Direct manipulation remains real: dragging the visible K node emits the same
 content-key MIME token used by the functional cards; dropping it on an
 eligible recipient emits wrapRequested(user_id), and dropping it on the media
-engine emits encryptRequested().  WorkbenchWindow maps those signals onto the
+engine emits encryptRequested(). WorkbenchWindow maps those signals onto the
 validated InteractiveSession methods.
 """
 
@@ -15,13 +15,48 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from PySide6.QtCore import QPointF, QRectF, Qt, Signal
+from PySide6.QtCore import QMimeData, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QDrag, QMouseEvent, QPainter, QPen
 from PySide6.QtWidgets import QWidget
-from PySide6.QtCore import QMimeData
 
 from .i18n import Translator
 from .widgets import CONTENT_KEY_MIME
+
+
+_CANVAS_TEXT = {
+    "zh_CN": {
+        "help": "从 K 节点直接拖拽到接收者公钥或 SM4-GCM 节点，操作会真实调用后端。",
+        "key_title": "SM4 内容密钥 K",
+        "key_empty": "尚未生成",
+        "media_title": "媒体 M",
+        "media_empty": "尚未选择",
+        "engine_title": "SM4-GCM",
+        "drop_key": "将 K 拖到这里",
+        "done": "已完成",
+        "package_title": "广播包",
+        "package_done": "已组装 .smre",
+        "package_ready": "已满足组包条件",
+        "package_wait": "等待 E[i] 与媒体密文",
+        "wrapped": "已生成密钥封装",
+        "no_recipients": "先在左侧选择接收者集合 S；这里会出现对应的 PK[i] → E[i] 节点。",
+    },
+    "en_US": {
+        "help": "Drag K directly to a recipient public-key node or SM4-GCM; the drop calls the real backend.",
+        "key_title": "SM4 content key K",
+        "key_empty": "not generated",
+        "media_title": "Media M",
+        "media_empty": "not selected",
+        "engine_title": "SM4-GCM",
+        "drop_key": "Drop K here",
+        "done": "complete",
+        "package_title": "Broadcast package",
+        "package_done": ".smre assembled",
+        "package_ready": "ready to assemble",
+        "package_wait": "waiting for E[i] + media ciphertext",
+        "wrapped": "wrapped key ready",
+        "no_recipients": "Choose recipient set S on the left; matching PK[i] → E[i] nodes will appear here.",
+    },
+}
 
 
 @dataclass(frozen=True)
@@ -51,7 +86,11 @@ class CryptoRelationCanvas(QWidget):
         self.setMinimumHeight(280)
         self.setMouseTracking(True)
         self.setObjectName("cryptoRelationCanvas")
-        self.setToolTip(self.i18n("canvas_help"))
+        self.setToolTip(self._t("help"))
+
+    def _t(self, key: str) -> str:
+        language = self.i18n.language if self.i18n.language in _CANVAS_TEXT else "en_US"
+        return _CANVAS_TEXT[language][key]
 
     def update_state(
         self,
@@ -168,7 +207,7 @@ class CryptoRelationCanvas(QWidget):
         self._draw_node(
             painter,
             key,
-            self.i18n("canvas_key_title"),
+            self._t("key_title"),
             self._key_detail(),
             ready=self.state.content_key_fingerprint is not None,
             draggable=self.state.content_key_fingerprint is not None,
@@ -177,22 +216,22 @@ class CryptoRelationCanvas(QWidget):
         self._draw_node(
             painter,
             media,
-            self.i18n("canvas_media_title"),
-            self.state.media_name or self.i18n("canvas_media_empty"),
+            self._t("media_title"),
+            self.state.media_name or self._t("media_empty"),
             ready=self.state.media_name is not None,
         )
         self._draw_node(
             painter,
             engine,
-            self.i18n("canvas_engine_title"),
-            self.i18n("canvas_done") if self.state.payload_ready else self.i18n("canvas_drop_key"),
+            self._t("engine_title"),
+            self._t("done") if self.state.payload_ready else self._t("drop_key"),
             ready=self.state.payload_ready,
             hovered=self._hover_target == "engine",
         )
         self._draw_node(
             painter,
             package,
-            self.i18n("canvas_package_title"),
+            self._t("package_title"),
             self._package_detail(),
             ready=self.state.package_assembled,
             pending=self.state.package_ready and not self.state.package_assembled,
@@ -205,7 +244,7 @@ class CryptoRelationCanvas(QWidget):
                 painter,
                 rect,
                 f"PK[{user_id}] → E[{user_id}]",
-                self.i18n("canvas_wrapped") if wrapped else self.i18n("canvas_drop_key"),
+                self._t("wrapped") if wrapped else self._t("drop_key"),
                 ready=wrapped,
                 hovered=self._hover_target == f"recipient:{user_id}",
             )
@@ -215,7 +254,7 @@ class CryptoRelationCanvas(QWidget):
             painter.drawText(
                 QRectF(self.width() * 0.35, 55.0, self.width() * 0.35, 80.0),
                 Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap,
-                self.i18n("canvas_no_recipients"),
+                self._t("no_recipients"),
             )
 
         painter.end()
@@ -223,15 +262,15 @@ class CryptoRelationCanvas(QWidget):
     def _key_detail(self) -> str:
         fp = self.state.content_key_fingerprint
         if not fp:
-            return self.i18n("canvas_key_empty")
+            return self._t("key_empty")
         return f"SM3 fp: {fp[:16]}"
 
     def _package_detail(self) -> str:
         if self.state.package_assembled:
-            return self.i18n("canvas_package_done")
+            return self._t("package_done")
         if self.state.package_ready:
-            return self.i18n("canvas_package_ready")
-        return self.i18n("canvas_package_wait")
+            return self._t("package_ready")
+        return self._t("package_wait")
 
     def _draw_node(
         self,
