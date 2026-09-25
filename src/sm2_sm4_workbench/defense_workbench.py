@@ -32,6 +32,12 @@ class DefenseWorkbenchWindow(ReceiverVisualWorkbenchWindow):
         self.defense_guide_label = QLabel()
         self.defense_guide_label.setObjectName("defenseGuide")
         self.defense_guide_label.setWordWrap(True)
+        self.defense_guide_label.setStyleSheet(
+            "QLabel#defenseGuide {"
+            "background:#FFF9E8; color:#6B541A; border:1px solid #E7D59B;"
+            "border-radius:8px; padding:7px 10px; font-weight:500;"
+            "}"
+        )
         panel_layout = panel.layout()
         if isinstance(panel_layout, QVBoxLayout):
             panel_layout.insertWidget(1, self.defense_guide_label)
