@@ -21,6 +21,31 @@ python tools/patch_gmssl_python_abi.py --check
 
 ABI 必须 PASS。
 
+### 中文字体 / WSLg 前置条件
+
+默认界面语言是 `zh_CN`。WSL/Ubuntu 新环境建议安装：
+
+```bash
+sudo apt-get update
+sudo apt-get install -y fonts-noto-cjk
+```
+
+仓库的 `scripts/bootstrap_gmssl_wsl.sh` 已包含 `fonts-noto-cjk` 以及常见 Qt/xcb WSLg 运行库。
+
+若中文出现 tofu/方框，不要修改 Python 源码编码或密码学逻辑；先检查字体：
+
+```bash
+fc-list :lang=zh | head
+```
+
+仍无法正常显示时可使用英文回退：
+
+```bash
+python -m src.sm2_sm4_workbench \
+  --workspace /tmp/sm2-sm4-workbench-v02-en \
+  --lang en_US
+```
+
 ## 3. 编译
 
 ```bash
@@ -79,12 +104,28 @@ python -m src.sm2_sm4_workbench \
 3. 密码输入仍为掩码；
 4. 顶部六阶段流程条可见；
 5. EMPTY/CONFIGURING 时第 1 步高亮；
-6. 生成 K 后第 2 步高亮；
-7. wrap 后第 3 步高亮；
-8. 媒体加密后第 4 步高亮；
+6. READY_FOR_MATERIAL / MATERIAL_READY 时第 2 步高亮；
+7. WRAPPING 时第 3 步高亮；
+8. PAYLOAD_ENCRYPTED 时第 4 步高亮；
 9. READY_TO_ASSEMBLE 时第 5 步高亮；
 10. PACKAGE_ASSEMBLED 时第 6 步高亮；
 11. u2/u4 正常解密、u1 NOT_RECIPIENT、force-try 失败等原功能不变。
+
+### 第 4 步的观察顺序
+
+`InteractiveSession.stage` 表示“当前整体状态”，不是强制线性播放进度。如果先把全部接收者的 SM2 封装都做完，再执行媒体加密，则媒体加密完成后所有组包条件同时满足，状态会直接进入 `READY_TO_ASSEMBLE`，流程条从第 3 步进入第 5 步；这是正常状态机行为。
+
+若要明确观察第 4 步 `PAYLOAD_ENCRYPTED`，使用下面顺序：
+
+```text
+生成 K
+→ 先将 K 拖到 SM4-GCM 引擎
+→ 此时检查第 4 步高亮
+→ 再完成 u2/u4 的 SM2 密钥封装
+→ 进入第 5 步
+```
+
+标准完整业务流程仍可按“先封装 u2/u4，再加密媒体”的顺序执行。
 
 ## 7. 字体 fallback
 
