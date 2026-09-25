@@ -23,9 +23,13 @@ def qapp():
     yield app
 
 
-def _prepared_window(tmp_path: Path) -> tuple[DefenseWorkbenchWindow, Path]:
+def _prepared_window(
+    tmp_path: Path,
+    *,
+    language: str = "zh_CN",
+) -> tuple[DefenseWorkbenchWindow, Path]:
     session = InteractiveSession(tmp_path / "workspace", backend=FakeBackend(), chunk_size=128)
-    window = DefenseWorkbenchWindow(session=session)
+    window = DefenseWorkbenchWindow(session=session, language=language)
     for user_id in ("u1", "u2"):
         window.generate_user(user_id, f"pw-{user_id}")
     source = tmp_path / "media.bin"
@@ -104,4 +108,23 @@ def test_receiver_inspector_projects_real_result_trace_without_secrets(qapp, tmp
 
     window.reset_broadcast(keep_media=True)
     assert window.principle_inspector.topic is None
+    window.close()
+
+
+def test_english_inspector_uses_ascii_colons_only(qapp, tmp_path: Path):
+    window, _ = _prepared_window(tmp_path, language="en_US")
+    window._show_principle("key")
+    text = window.principle_inspector.browser.toPlainText()
+
+    assert "：" not in text
+    for label in (
+        "Role:",
+        "Inputs:",
+        "Core relation / operation:",
+        "Outputs:",
+        "Live state:",
+        "Security boundary:",
+    ):
+        assert label in text
+
     window.close()
