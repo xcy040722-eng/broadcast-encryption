@@ -9,7 +9,7 @@ from pathlib import Path
 from PySide6.QtWidgets import QApplication
 
 from .i18n import DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES
-from .window import WorkbenchWindow
+from .receiver_workbench import ReceiverVisualWorkbenchWindow
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -32,7 +32,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     app = QApplication.instance() or QApplication(sys.argv[:1])
-    window = WorkbenchWindow(workspace=args.workspace, language=args.lang)
+    window = ReceiverVisualWorkbenchWindow(workspace=args.workspace, language=args.lang)
     window.show()
     return app.exec()
 
