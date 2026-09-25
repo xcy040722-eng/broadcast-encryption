@@ -1,10 +1,11 @@
-"""v0.4 defense-oriented workbench layer.
+"""v0.5 defense-oriented workbench layer.
 
 Adds a clickable principle/live-state inspector on top of the already validated
-sender relationship canvas and receiver-path canvas.  It also presents receiver
-results in localized defense-friendly text while preserving the stable backend
-status codes.  The layer receives only safe projections/result metadata and
-never exposes raw SM4 or SM2 private-key material.
+sender relationship canvas and receiver-path canvas.  It presents receiver
+results in localized defense-friendly text while preserving stable backend
+status codes, and adds a state-driven *manual* defense guide.  The guide never
+executes actions or advances the state machine; it only suggests what the
+presenter can do next.
 """
 
 from __future__ import annotations
@@ -12,20 +13,28 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, QPointF, QRectF
-from PySide6.QtWidgets import QVBoxLayout, QWidget
+from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
 from src.sm2_sm4_mre.types import DecryptResult
 
+from .defense_guide import guide_for
 from .principle_inspector import PrincipleInspector
 from .receiver_workbench import ReceiverVisualWorkbenchWindow
 from .result_presenter import present_decrypt_result
 
 
 class DefenseWorkbenchWindow(ReceiverVisualWorkbenchWindow):
-    """Final teaching/defense shell with click-to-explain cryptographic objects."""
+    """Final teaching/defense shell with real crypto and manual guidance."""
 
     def _build_workspace_panel(self) -> QWidget:
         panel = super()._build_workspace_panel()
+
+        self.defense_guide_label = QLabel()
+        self.defense_guide_label.setObjectName("defenseGuide")
+        self.defense_guide_label.setWordWrap(True)
+        panel_layout = panel.layout()
+        if isinstance(panel_layout, QVBoxLayout):
+            panel_layout.insertWidget(1, self.defense_guide_label)
 
         self.principle_tab = QWidget()
         layout = QVBoxLayout(self.principle_tab)
@@ -47,10 +56,20 @@ class DefenseWorkbenchWindow(ReceiverVisualWorkbenchWindow):
     def refresh(self) -> None:
         super().refresh()
         if hasattr(self, "principle_inspector"):
+            snapshot = self.session.snapshot()
+            receiver_state = self.receiver_flow.state
             self.principle_inspector.refresh_state(
-                snapshot=self.session.snapshot(),
-                receiver_state=self.receiver_flow.state,
+                snapshot=snapshot,
+                receiver_state=receiver_state,
             )
+            if hasattr(self, "defense_guide_label"):
+                self.defense_guide_label.setText(
+                    guide_for(
+                        snapshot,
+                        receiver_state,
+                        language=self.i18n.language,
+                    ).text
+                )
 
     def decrypt_user(self, user_id: str, password: str, output_path: Path) -> DecryptResult:
         result = super().decrypt_user(user_id, password, output_path)
@@ -63,6 +82,7 @@ class DefenseWorkbenchWindow(ReceiverVisualWorkbenchWindow):
         )
         self.receiver_result.setText(presented.panel_text)
         self._set_status(presented.status_line)
+        self.refresh()
         return result
 
     def force_try_user(
@@ -87,12 +107,14 @@ class DefenseWorkbenchWindow(ReceiverVisualWorkbenchWindow):
         )
         self.receiver_result.setText(presented.panel_text)
         self._set_status(presented.status_line)
+        self.refresh()
         return result
 
     def reset_broadcast(self, *, keep_media: bool = True) -> None:
         super().reset_broadcast(keep_media=keep_media)
         if hasattr(self, "principle_inspector"):
             self.principle_inspector.clear()
+        self.refresh()
 
     def eventFilter(self, watched, event) -> bool:  # noqa: N802 - Qt API
         if event.type() == QEvent.Type.MouseButtonRelease:
