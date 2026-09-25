@@ -1,18 +1,24 @@
-"""v0.3 defense-oriented workbench layer.
+"""v0.4 defense-oriented workbench layer.
 
 Adds a clickable principle/live-state inspector on top of the already validated
-sender relationship canvas and receiver-path canvas.  The inspector receives
-only SessionSnapshot/ReceiverCanvasState projections and therefore cannot leak
-raw SM4 or SM2 private-key material.
+sender relationship canvas and receiver-path canvas.  It also presents receiver
+results in localized defense-friendly text while preserving the stable backend
+status codes.  The layer receives only safe projections/result metadata and
+never exposes raw SM4 or SM2 private-key material.
 """
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtCore import QEvent, QPointF, QRectF
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
+from src.sm2_sm4_mre.types import DecryptResult
+
 from .principle_inspector import PrincipleInspector
 from .receiver_workbench import ReceiverVisualWorkbenchWindow
+from .result_presenter import present_decrypt_result
 
 
 class DefenseWorkbenchWindow(ReceiverVisualWorkbenchWindow):
@@ -45,6 +51,43 @@ class DefenseWorkbenchWindow(ReceiverVisualWorkbenchWindow):
                 snapshot=self.session.snapshot(),
                 receiver_state=self.receiver_flow.state,
             )
+
+    def decrypt_user(self, user_id: str, password: str, output_path: Path) -> DecryptResult:
+        result = super().decrypt_user(user_id, password, output_path)
+        presented = present_decrypt_result(
+            result,
+            language=self.i18n.language,
+            user_id=user_id,
+            target_recipient_id=user_id,
+            force=False,
+        )
+        self.receiver_result.setText(presented.panel_text)
+        self._set_status(presented.status_line)
+        return result
+
+    def force_try_user(
+        self,
+        attacker_user_id: str,
+        password: str,
+        target_recipient_id: str,
+        output_path: Path,
+    ) -> DecryptResult:
+        result = super().force_try_user(
+            attacker_user_id,
+            password,
+            target_recipient_id,
+            output_path,
+        )
+        presented = present_decrypt_result(
+            result,
+            language=self.i18n.language,
+            user_id=attacker_user_id,
+            target_recipient_id=target_recipient_id,
+            force=True,
+        )
+        self.receiver_result.setText(presented.panel_text)
+        self._set_status(presented.status_line)
+        return result
 
     def reset_broadcast(self, *, keep_media: bool = True) -> None:
         super().reset_broadcast(keep_media=keep_media)
