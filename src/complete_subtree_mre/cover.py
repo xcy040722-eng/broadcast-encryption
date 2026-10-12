@@ -21,7 +21,7 @@ def steiner_tree(tree: CompleteSubtreeTree, revoked: set[int]) -> tuple[int, ...
 
 
 def cover(tree: CompleteSubtreeTree, revoked: set[int]) -> tuple[int, ...]:
-    """Return roots of the disjoint complete subtrees covering U \ R.
+    r"""Return roots of the disjoint complete subtrees covering U \ R.
 
     These are exactly the subtrees hanging off ST(R).  When R is empty, the
     whole tree is one cover subset.  When every user is revoked, the cover is
