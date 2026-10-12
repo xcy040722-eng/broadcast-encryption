@@ -27,8 +27,10 @@ from src.complete_subtree_mre.interactive_session import (
 from src.complete_subtree_mre.types import CsRecoverResult
 from src.sm2_sm4_workbench.window import LIGHT_STYLE
 
+from .defense_guide import guide_for
 from .i18n import DEFAULT_LANGUAGE, Translator
 from .principle_inspector import CsReceiverState, CompleteSubtreePrincipleInspector
+from .result_presenter import present_cs_result
 from .tree_canvas import CompleteSubtreeCanvas
 from .widgets import ContentKeyCard
 
@@ -281,15 +283,13 @@ class CompleteSubtreeWorkbenchWindow(QMainWindow):
         user_id = self._selected_user_id()
         result = self.session.recover_as(user_id)
         self._receiver_state = CsReceiverState.from_result(result, mode="recover")
-        self.receiver_result.setText(f"{result.status.value}\n{result.message}")
-        self.status.setText(
-            self.i18n(
-                "status_recover",
-                user=user_id,
-                status=result.status.value,
-                message=result.message,
-            )
+        presented = present_cs_result(
+            result,
+            language=self.i18n.language,
+            force=False,
         )
+        self.receiver_result.setText(presented.panel_text)
+        self.status.setText(presented.status_line)
         self.canvas.set_receiver_result(
             path=result.trace.user_path_nodes,
             matched_node=result.trace.matched_node_id,
@@ -306,16 +306,14 @@ class CompleteSubtreeWorkbenchWindow(QMainWindow):
         target = int(target)
         result = self.session.force_try(user_id, target)
         self._receiver_state = CsReceiverState.from_result(result, mode="force")
-        self.receiver_result.setText(f"{result.status.value}\n{result.message}")
-        self.status.setText(
-            self.i18n(
-                "status_force",
-                user=user_id,
-                target=target,
-                status=result.status.value,
-                message=result.message,
-            )
+        presented = present_cs_result(
+            result,
+            language=self.i18n.language,
+            force=True,
+            target_node_id=target,
         )
+        self.receiver_result.setText(presented.panel_text)
+        self.status.setText(presented.status_line)
         self.canvas.set_receiver_result(
             path=result.trace.user_path_nodes,
             failed_target=target,
@@ -376,7 +374,13 @@ class CompleteSubtreeWorkbenchWindow(QMainWindow):
     def refresh(self, *, keep_receiver_projection: bool = False) -> None:
         snap = self.session.snapshot()
         self.stage_label.setText(self.i18n("stage_badge", stage=snap.stage.value))
-        self.guide.setText(self._guide_text(snap.stage))
+        self.guide.setText(
+            guide_for(
+                snap,
+                self._receiver_state,
+                language=self.i18n.language,
+            ).text
+        )
         self.summary.setText(
             self.i18n(
                 "cover_summary",
