@@ -132,3 +132,41 @@ def test_receiver_success_revoked_force_and_english_fallback(qapp):
     )
     assert not re.search(r"[\u3400-\u9fff\uff00-\uffef]", text)
     en.close()
+
+
+def test_window_localizes_receiver_result_and_guide(qapp):
+    zh = _window("zh_CN")
+    _prepare_header(zh)
+    assert "接收端三步验证" in zh.guide.text()
+
+    zh.receiver_user.setCurrentText("u4")
+    ok = zh.recover_selected()
+    assert ok.status == CsRecoverStatus.SUCCESS
+    assert zh.receiver_result.text().startswith("SUCCESS\n授权验证通过")
+    assert "u4：SUCCESS" in zh.status.text()
+    assert "接下来选择 u3" in zh.guide.text()
+
+    zh.receiver_user.setCurrentText("u3")
+    denied = zh.recover_selected()
+    assert denied.status == CsRecoverStatus.REVOKED
+    assert "撤销生效" in zh.receiver_result.text()
+    assert "u3 → v3" in zh.guide.text()
+
+    idx = zh.force_target.findData(3)
+    zh.force_target.setCurrentIndex(idx)
+    forced = zh.force_try_selected()
+    assert forced.status == CsRecoverStatus.HEADER_UNWRAP_FAILED
+    assert "错误路径密钥" in zh.receiver_result.text()
+    assert "L[10]" in zh.receiver_result.text()
+    assert "核心演示完成" in zh.guide.text()
+    zh.close()
+
+    en = _window("en_US")
+    _prepare_header(en)
+    en.receiver_user.setCurrentText("u4")
+    en.recover_selected()
+    combined = en.receiver_result.text() + "\n" + en.status.text() + "\n" + en.guide.text()
+    assert "Authorized receiver verified" in combined
+    assert "：" not in combined
+    assert not re.search(r"[\u3400-\u9fff\uff00-\uffef]", combined)
+    en.close()
