@@ -197,7 +197,7 @@ def build_header(
     *,
     backend: CryptoBackend | None = None,
 ) -> tuple[CsHeaderEntry, ...]:
-    """Compute Cover(U\R) and encrypt the same K under every cover-node key."""
+    r"""Compute Cover(U\R) and encrypt the same K under every cover-node key."""
     b = _backend_or_default(backend)
     roots = cover(tree, revoked)
     return tuple(
