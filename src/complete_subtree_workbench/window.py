@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QSplitter,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -27,6 +28,7 @@ from src.complete_subtree_mre.types import CsRecoverResult
 from src.sm2_sm4_workbench.window import LIGHT_STYLE
 
 from .i18n import DEFAULT_LANGUAGE, Translator
+from .principle_inspector import CsReceiverState, CompleteSubtreePrincipleInspector
 from .tree_canvas import CompleteSubtreeCanvas
 from .widgets import ContentKeyCard
 
@@ -51,6 +53,7 @@ class CompleteSubtreeWorkbenchWindow(QMainWindow):
         self.resize(1440, 860)
         self.setStyleSheet(LIGHT_STYLE)
         self._revoked_checks: dict[int, QCheckBox] = {}
+        self._receiver_state = CsReceiverState()
         self._build_ui()
         self.refresh()
 
@@ -171,18 +174,38 @@ class CompleteSubtreeWorkbenchWindow(QMainWindow):
         material_row.addLayout(controls)
         layout.addLayout(material_row)
 
+        self.workspace_tabs = QTabWidget()
+
+        graph_tab = QWidget()
+        graph_layout = QVBoxLayout(graph_tab)
+        graph_layout.setContentsMargins(0, 0, 0, 0)
+        graph_layout.setSpacing(7)
+
         self.canvas = CompleteSubtreeCanvas(self.session.tree)
         self.canvas.wrapRequested.connect(
             lambda node_id: self._safe(lambda: self.wrap_for_node(node_id))
         )
         self.canvas.nodeSelected.connect(self._node_selected)
-        layout.addWidget(self.canvas, 1)
+        graph_layout.addWidget(self.canvas, 1)
 
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
-        self.log.setMaximumHeight(150)
-        layout.addWidget(QLabel(self.i18n("log")))
-        layout.addWidget(self.log)
+        self.log.setMaximumHeight(125)
+        graph_layout.addWidget(QLabel(self.i18n("log")))
+        graph_layout.addWidget(self.log)
+
+        self.principle_inspector = CompleteSubtreePrincipleInspector(self.i18n)
+        self.principle_inspector.topicRequested.connect(self._principle_topic_requested)
+
+        graph_text = "关系图" if self.i18n.language == "zh_CN" else "Object graph"
+        principle_text = (
+            "原理 / 本次状态"
+            if self.i18n.language == "zh_CN"
+            else "Principle / live state"
+        )
+        self.workspace_tabs.addTab(graph_tab, graph_text)
+        self.workspace_tabs.addTab(self.principle_inspector, principle_text)
+        layout.addWidget(self.workspace_tabs, 1)
         return panel
 
     def _build_receiver_panel(self) -> QWidget:
@@ -257,6 +280,7 @@ class CompleteSubtreeWorkbenchWindow(QMainWindow):
     def recover_selected(self) -> CsRecoverResult:
         user_id = self._selected_user_id()
         result = self.session.recover_as(user_id)
+        self._receiver_state = CsReceiverState.from_result(result, mode="recover")
         self.receiver_result.setText(f"{result.status.value}\n{result.message}")
         self.status.setText(
             self.i18n(
@@ -281,6 +305,7 @@ class CompleteSubtreeWorkbenchWindow(QMainWindow):
             raise RuntimeError("no Complete Subtree header target is available")
         target = int(target)
         result = self.session.force_try(user_id, target)
+        self._receiver_state = CsReceiverState.from_result(result, mode="force")
         self.receiver_result.setText(f"{result.status.value}\n{result.message}")
         self.status.setText(
             self.i18n(
@@ -301,8 +326,11 @@ class CompleteSubtreeWorkbenchWindow(QMainWindow):
 
     def reset_broadcast(self) -> None:
         self.session.reset_broadcast()
+        self._receiver_state = CsReceiverState()
         self.canvas.clear_receiver_result()
         self.receiver_result.setText(self.i18n("result_wait"))
+        self.principle_inspector.clear()
+        self.workspace_tabs.setCurrentIndex(0)
         self.status.setText(self.i18n("status_reset"))
         self._append_log(self.status.text())
         self.refresh()
@@ -310,6 +338,28 @@ class CompleteSubtreeWorkbenchWindow(QMainWindow):
     def _node_selected(self, node_id: int) -> None:
         users = ", ".join(f"u{i}" for i in self.session.tree.users_in_subtree(node_id))
         self._append_log(f"v{node_id}: {{{users}}}")
+        snap = self.session.snapshot()
+        if node_id in snap.wrapped_nodes:
+            topic = f"header:{node_id}"
+        elif node_id in snap.cover_roots:
+            topic = f"cover:{node_id}"
+        elif node_id in snap.steiner_nodes:
+            topic = f"steiner:{node_id}"
+        else:
+            topic = f"nodekey:{node_id}"
+        self.principle_inspector.show_topic(
+            topic,
+            snapshot=snap,
+            receiver=self._receiver_state,
+        )
+        self.workspace_tabs.setCurrentWidget(self.principle_inspector)
+
+    def _principle_topic_requested(self, topic: str) -> None:
+        self.principle_inspector.show_topic(
+            topic,
+            snapshot=self.session.snapshot(),
+            receiver=self._receiver_state,
+        )
 
     def _append_log(self, text: str) -> None:
         self.log.appendPlainText(text)
@@ -355,6 +405,10 @@ class CompleteSubtreeWorkbenchWindow(QMainWindow):
             },
         )
         self.canvas.set_snapshot(snap)
+        self.principle_inspector.set_state(
+            snapshot=snap,
+            receiver=self._receiver_state,
+        )
         if not keep_receiver_projection and snap.stage != CsSessionStage.HEADER_READY:
             self.canvas.clear_receiver_result()
 
