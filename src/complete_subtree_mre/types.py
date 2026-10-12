@@ -45,6 +45,7 @@ class CsRecoverTrace:
     user_id: int
     user_path_nodes: tuple[int, ...] = ()
     matched_node_id: int | None = None
+    attempted_key_node_id: int | None = None
     header_fingerprint: str | None = None
     content_key_fingerprint: str | None = None
     events: list[CsTraceEvent] = field(default_factory=list)
