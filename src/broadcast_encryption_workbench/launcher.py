@@ -222,6 +222,7 @@ class BroadcastEncryptionLauncher(QMainWindow):
         return window
 
     def _track_child(self, window: QMainWindow) -> None:
+        window.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         self._children.append(window)
         window.destroyed.connect(lambda _obj=None, w=window: self._forget_child(w))
 
